@@ -123,3 +123,21 @@ export async function deleteHwidDevice(userUuid: string, hwid: string): Promise<
         throw error;
     }
 }
+
+export interface SubscriptionSettings {
+    hwidSettings?: {
+        enabled: boolean;
+        fallbackDeviceLimit: number;
+        maxDevicesAnnounce: string | null;
+    } | null;
+}
+
+export async function getSubscriptionSettings(): Promise<SubscriptionSettings | null> {
+    try {
+        const response = await apiClient.get(`/api/subscription-settings`);
+        return response.data?.response as SubscriptionSettings;
+    } catch (error) {
+        console.error(`Error fetching subscription settings:`, error instanceof AxiosError ? error.message : error);
+        return null;
+    }
+}

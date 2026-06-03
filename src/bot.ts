@@ -1,6 +1,6 @@
 import { Telegraf, Markup } from 'telegraf';
 import dotenv from 'dotenv';
-import { getUserByTelegramId, getSubscriptionInfo, deleteAllHwidDevices, getUserHwidDevices, deleteHwidDevice } from './api';
+import { getUserByTelegramId, getSubscriptionInfo, deleteAllHwidDevices, getUserHwidDevices, deleteHwidDevice, getSubscriptionSettings } from './api';
 
 dotenv.config();
 
@@ -119,7 +119,7 @@ bot.action('action_subscription', async (ctx) => {
 
         let text = `🔗 **Ваша подписка**\n\n`;
         text += `**Ссылка на автонастройку:**\n\`${subInfo.subscriptionUrl}\`\n\n`;
-        text += `_Скопируйте эту ссылку и вставьте в ваше приложение (например, v2rayNG или NekoBox)._`;
+        text += `_Скопируйте эту ссылку и вставьте в ваше приложение._`;
 
         const keyboard = Markup.inlineKeyboard([
             [Markup.button.callback('📱 Управление устройствами (HWID)', 'action_hwid_menu')],
@@ -145,7 +145,15 @@ bot.action('action_hwid_menu', async (ctx) => {
         }
 
         const devices = await getUserHwidDevices(user.uuid);
-        const limitStr = user.hwidDeviceLimit ? user.hwidDeviceLimit.toString() : '∞';
+        let limitStr = '∞';
+        if (user.hwidDeviceLimit !== null) {
+            limitStr = user.hwidDeviceLimit.toString();
+        } else {
+            const settings = await getSubscriptionSettings();
+            if (settings?.hwidSettings?.enabled && settings.hwidSettings.fallbackDeviceLimit > 0) {
+                limitStr = settings.hwidSettings.fallbackDeviceLimit.toString();
+            }
+        }
         
         let text = `📱 **Ваши устройства (HWID)**\n\n`;
         text += `Подключено: **${devices.length} / ${limitStr}**\n\n`;
@@ -190,7 +198,15 @@ bot.action(/del_hwid:(.+)/, async (ctx) => {
         
         // Refresh HWID menu by simulating clicking the HWID menu button again
         const devices = await getUserHwidDevices(user.uuid);
-        const limitStr = user.hwidDeviceLimit ? user.hwidDeviceLimit.toString() : '∞';
+        let limitStr = '∞';
+        if (user.hwidDeviceLimit !== null) {
+            limitStr = user.hwidDeviceLimit.toString();
+        } else {
+            const settings = await getSubscriptionSettings();
+            if (settings?.hwidSettings?.enabled && settings.hwidSettings.fallbackDeviceLimit > 0) {
+                limitStr = settings.hwidSettings.fallbackDeviceLimit.toString();
+            }
+        }
         let text = `📱 **Ваши устройства (HWID)**\n\nПодключено: **${devices.length} / ${limitStr}**\n\n`;
         const buttons: any[][] = [];
         if (devices.length === 0) {
@@ -232,7 +248,7 @@ bot.action('action_reset_hwid', async (ctx) => {
 
         let text = `🔗 **Ваша подписка**\n\n`;
         text += `**Ссылка на автонастройку:**\n\`${subInfo.subscriptionUrl}\`\n\n`;
-        text += `_Скопируйте эту ссылку и вставьте в ваше приложение (например, v2rayNG или NekoBox)._`;
+        text += `_Скопируйте эту ссылку и вставьте в ваше приложение._`;
 
         const keyboard = Markup.inlineKeyboard([
             [Markup.button.callback('📱 Управление устройствами (HWID)', 'action_hwid_menu')],
