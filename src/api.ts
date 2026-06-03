@@ -5,18 +5,25 @@ dotenv.config();
 
 const API_URL = process.env.REMNAWAVE_API_URL;
 const API_KEY = process.env.REMNAWAVE_X_API_KEY;
+const CADDY_API_KEY = process.env.CADDY_API_KEY;
 
 if (!API_URL || !API_KEY) {
     console.error("Missing REMNAWAVE_API_URL or REMNAWAVE_X_API_KEY in .env");
     process.exit(1);
 }
 
+const headers: Record<string, string> = {
+    'X-Api-Key': API_KEY,
+    'Content-Type': 'application/json'
+};
+
+if (CADDY_API_KEY) {
+    headers['Authorization'] = `Bearer ${CADDY_API_KEY}`;
+}
+
 const apiClient = axios.create({
     baseURL: API_URL,
-    headers: {
-        'X-Api-Key': API_KEY,
-        'Content-Type': 'application/json'
-    }
+    headers: headers
 });
 
 export interface User {
