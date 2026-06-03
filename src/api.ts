@@ -28,6 +28,7 @@ export interface User {
     status: 'ACTIVE' | 'DISABLED' | 'LIMITED' | 'EXPIRED';
     expireAt: string;
     trafficLimitStrategy: string;
+    hwidDeviceLimit: number | null;
     userTraffic: {
         usedTrafficBytes: number;
         lifetimeUsedTrafficBytes: number;
@@ -89,6 +90,34 @@ export async function deleteAllHwidDevices(userUuid: string): Promise<void> {
         await apiClient.post(`/api/hwid/devices/delete-all`, { userUuid });
     } catch (error) {
         console.error(`Error deleting HWID devices for ${userUuid}:`, error instanceof AxiosError ? error.message : error);
+        throw error;
+    }
+}
+
+export interface HwidDevice {
+    hwid: string;
+    platform: string | null;
+    osVersion: string | null;
+    deviceModel: string | null;
+    userAgent: string | null;
+    createdAt: string;
+}
+
+export async function getUserHwidDevices(userUuid: string): Promise<HwidDevice[]> {
+    try {
+        const response = await apiClient.get(`/api/hwid/devices/${userUuid}`);
+        return response.data?.response?.devices || [];
+    } catch (error) {
+        console.error(`Error fetching HWID devices for ${userUuid}:`, error instanceof AxiosError ? error.message : error);
+        throw error;
+    }
+}
+
+export async function deleteHwidDevice(userUuid: string, hwid: string): Promise<void> {
+    try {
+        await apiClient.post(`/api/hwid/devices/delete`, { userUuid, hwid });
+    } catch (error) {
+        console.error(`Error deleting HWID device ${hwid} for ${userUuid}:`, error instanceof AxiosError ? error.message : error);
         throw error;
     }
 }
