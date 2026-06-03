@@ -37,6 +37,14 @@ REMNAWAVE_API_URL=http://remnawave:3000
 
 # X-Api-Key, сгенерированный в самой панели Remnawave (Admin -> System -> API Tokens)
 REMNAWAVE_X_API_KEY=eyJhbGciOi...
+
+# --- НАСТРОЙКИ УВЕДОМЛЕНИЙ ОБ ОПЛАТЕ (Опционально) ---
+# День месяца для рассылки (от 1 до 31). Установите 0, чтобы отключить.
+PAYMENT_NOTIFICATION_DAY=0
+# Время рассылки по серверному времени
+PAYMENT_NOTIFICATION_TIME=10:00
+# Текст сообщения
+PAYMENT_NOTIFICATION_MESSAGE=Напоминаем об оплате подписки!
 ```
 
 ### 3. Запустите бота:
