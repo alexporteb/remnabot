@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  remnabot:
+    image: ghcr.io/alexporteb/remnabot:main
+    container_name: remnabot
+    restart: unless-stopped
+    env_file:
+      - .env
+    # If the bot needs to be in the same network as the caddy container to access it via hostname,
+    # you can uncomment and adjust the networks block below. Otherwise, it will access via public domain.
+    # networks:
+    #   - remnawave-network
+
+# networks:
+#   remnawave-network:
+#     external: true
