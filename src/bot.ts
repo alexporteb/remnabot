@@ -73,15 +73,15 @@ bot.action('action_profile', async (ctx) => {
         
         let expireText = 'Истекла';
         if (s.daysLeft > 3650) {
-            expireText = 'Бесконечно';
+            expireText = '∞';
         } else if (s.daysLeft > 0) {
             expireText = `${s.daysLeft} дн.`;
         } else if (s.daysLeft === null || s.daysLeft === undefined) {
-            expireText = 'Бесконечно';
+            expireText = '∞';
         }
 
         const isUnlimitedTraffic = s.trafficLimit === '0 B' || s.trafficLimit === '0' || s.trafficLimitBytes === '0' || Number(s.trafficLimitBytes) === 0;
-        const trafficLimitText = isUnlimitedTraffic ? 'Бесконечно' : s.trafficLimit;
+        const trafficLimitText = isUnlimitedTraffic ? '∞' : s.trafficLimit;
 
         const text = `📊 **Ваш профиль**\n\n` +
             `👤 **Имя пользователя:** ${s.username}\n` +
