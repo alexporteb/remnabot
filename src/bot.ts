@@ -18,6 +18,8 @@ const unauthorizedMessage = "Команда не распознана.";
 
 bot.start(async (ctx) => {
     const telegramId = ctx.from.id;
+    const username = ctx.from.username || ctx.from.first_name || 'Unknown';
+    console.log(`[START] User ${username} (ID: ${telegramId}) started the bot.`);
     try {
         const user = await getUserByTelegramId(telegramId);
         if (!user) {
@@ -48,8 +50,10 @@ async function sendMainMenu(ctx: any, username: string) {
 
 bot.action('action_profile', async (ctx) => {
     const telegramId = ctx.from?.id;
+    const username = ctx.from?.username || ctx.from?.first_name || 'Unknown';
     if (!telegramId) return;
 
+    console.log(`[PROFILE] User ${username} (ID: ${telegramId}) requested profile.`);
     try {
         const user = await getUserByTelegramId(telegramId);
         if (!user) {
@@ -104,8 +108,10 @@ bot.action('action_profile', async (ctx) => {
 
 bot.action('action_subscription', async (ctx) => {
     const telegramId = ctx.from?.id;
+    const username = ctx.from?.username || ctx.from?.first_name || 'Unknown';
     if (!telegramId) return;
 
+    console.log(`[SUBSCRIPTION] User ${username} (ID: ${telegramId}) requested subscription info.`);
     try {
         const user = await getUserByTelegramId(telegramId);
         if (!user) {
@@ -136,8 +142,10 @@ bot.action('action_subscription', async (ctx) => {
 
 bot.action('action_hwid_menu', async (ctx) => {
     const telegramId = ctx.from?.id;
+    const username = ctx.from?.username || ctx.from?.first_name || 'Unknown';
     if (!telegramId) return;
 
+    console.log(`[HWID_MENU] User ${username} (ID: ${telegramId}) opened HWID menu.`);
     try {
         const user = await getUserByTelegramId(telegramId);
         if (!user) {
@@ -186,9 +194,11 @@ bot.action('action_hwid_menu', async (ctx) => {
 
 bot.action(/del_hwid:(.+)/, async (ctx) => {
     const telegramId = ctx.from?.id;
+    const username = ctx.from?.username || ctx.from?.first_name || 'Unknown';
     if (!telegramId) return;
     const hwid = ctx.match[1];
 
+    console.log(`[HWID_DELETE] User ${username} (ID: ${telegramId}) attempting to delete device ${hwid}.`);
     try {
         const user = await getUserByTelegramId(telegramId);
         if (!user) return ctx.answerCbQuery(unauthorizedMessage, { show_alert: true });
@@ -229,8 +239,10 @@ bot.action(/del_hwid:(.+)/, async (ctx) => {
 
 bot.action('action_reset_hwid', async (ctx) => {
     const telegramId = ctx.from?.id;
+    const username = ctx.from?.username || ctx.from?.first_name || 'Unknown';
     if (!telegramId) return;
 
+    console.log(`[HWID_RESET] User ${username} (ID: ${telegramId}) requested to reset all devices.`);
     try {
         const user = await getUserByTelegramId(telegramId);
         if (!user) {
@@ -281,6 +293,9 @@ bot.action('action_back', async (ctx) => {
 
 // Any other messages
 bot.on('message', (ctx) => {
+    const telegramId = ctx.from?.id;
+    const text = 'text' in ctx.message ? ctx.message.text : 'non-text message';
+    console.log(`[MESSAGE] Unhandled message from ID ${telegramId}: ${text}`);
     ctx.reply(unauthorizedMessage);
 });
 
