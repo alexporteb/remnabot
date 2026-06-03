@@ -70,13 +70,24 @@ bot.action('action_profile', async (ctx) => {
         };
 
         const status = statusMap[s.userStatus] || s.userStatus;
-        const expireText = s.daysLeft > 0 ? `${s.daysLeft} дн.` : 'Истекла или бессрочно';
+        
+        let expireText = 'Истекла';
+        if (s.daysLeft > 3650) {
+            expireText = 'Бесконечно';
+        } else if (s.daysLeft > 0) {
+            expireText = `${s.daysLeft} дн.`;
+        } else if (s.daysLeft === null || s.daysLeft === undefined) {
+            expireText = 'Бесконечно';
+        }
+
+        const isUnlimitedTraffic = s.trafficLimit === '0 B' || s.trafficLimit === '0' || s.trafficLimitBytes === '0' || Number(s.trafficLimitBytes) === 0;
+        const trafficLimitText = isUnlimitedTraffic ? 'Бесконечно' : s.trafficLimit;
 
         const text = `📊 **Ваш профиль**\n\n` +
             `👤 **Имя пользователя:** ${s.username}\n` +
             `🚦 **Статус:** ${status}\n` +
             `⏳ **Осталось времени:** ${expireText}\n` +
-            `📈 **Использовано трафика:** ${s.trafficUsed} из ${s.trafficLimit === '0 B' ? '∞' : s.trafficLimit}\n` +
+            `📈 **Использовано трафика:** ${s.trafficUsed} из ${trafficLimitText}\n` +
             `🌐 **Всего использовано:** ${s.lifetimeTrafficUsed}`;
 
         const keyboard = Markup.inlineKeyboard([
