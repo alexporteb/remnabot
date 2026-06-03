@@ -145,10 +145,25 @@ bot.action('action_subscription', async (ctx) => {
 
 bot.action('action_revoke_sub', async (ctx) => {
     const telegramId = ctx.from?.id;
+    if (!telegramId) return;
+
+    let text = `⚠️ **Внимание!**\n\nВы уверены, что хотите пересоздать ссылку на подписку?\n\nВаша текущая ссылка перестанет работать, и вам придется заново добавить новую ссылку во все ваши приложения.`;
+    
+    const keyboard = Markup.inlineKeyboard([
+        [Markup.button.callback('✅ Да, пересоздать', 'action_revoke_sub_execute')],
+        [Markup.button.callback('❌ Отмена', 'action_subscription')]
+    ]);
+
+    await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+    await ctx.answerCbQuery();
+});
+
+bot.action('action_revoke_sub_execute', async (ctx) => {
+    const telegramId = ctx.from?.id;
     const username = ctx.from?.username || ctx.from?.first_name || 'Unknown';
     if (!telegramId) return;
 
-    console.log(`[SUBSCRIPTION_REVOKE] User ${username} (ID: ${telegramId}) requested to recreate subscription.`);
+    console.log(`[SUBSCRIPTION_REVOKE] User ${username} (ID: ${telegramId}) confirming subscription recreation.`);
     try {
         const user = await getUserByTelegramId(telegramId);
         if (!user) {
@@ -157,8 +172,17 @@ bot.action('action_revoke_sub', async (ctx) => {
 
         await revokeUserSubscription(user.uuid);
         
+        // Wait 2.5 seconds for Remnawave backend to regenerate the subscription
+        await new Promise(resolve => setTimeout(resolve, 2500));
+
+        // Fetch new user object to get the new shortUuid
+        const updatedUser = await getUserByTelegramId(telegramId);
+        if (!updatedUser) {
+            return ctx.answerCbQuery("Ошибка получения обновленного профиля.", { show_alert: true });
+        }
+        
         // Fetch new subscription info
-        const subInfo = await getSubscriptionInfo(user.shortUuid);
+        const subInfo = await getSubscriptionInfo(updatedUser.shortUuid);
         if (!subInfo || !subInfo.isFound) {
             return ctx.answerCbQuery("Подписка пересоздана, но информация не найдена.", { show_alert: true });
         }
