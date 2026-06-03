@@ -15,8 +15,6 @@ const apiClient = axios.create({
     baseURL: API_URL,
     headers: {
         'X-Api-Key': API_KEY,
-        // Also add Authorization just in case it's hitting Remnawave directly without Caddy bypass
-        'Authorization': `Bearer ${API_KEY}`,
         'Content-Type': 'application/json'
     }
 });
