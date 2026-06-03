@@ -11,53 +11,51 @@
 
 Вам не нужно собирать образ на вашем сервере. Он автоматически собирается через GitHub Actions и доступен в GitHub Container Registry (ghcr.io).
 
-### 1. Скачайте файл конфигурации `.env.example` на ваш сервер:
+### 1. Скачайте файлы запуска на ваш сервер:
 
+Создайте папку для бота (например, рядом с вашей панелью) и скачайте нужные файлы:
 ```bash
-mkdir remnabot && cd remnabot
+mkdir -p /opt/remnawave/remnabot && cd /opt/remnawave/remnabot
+wget https://raw.githubusercontent.com/alexporteb/remnabot/main/docker-compose.yml
 wget https://raw.githubusercontent.com/alexporteb/remnabot/main/.env.example -O .env
 ```
 
 ### 2. Настройте файл `.env`:
 
-Откройте файл `.env` и заполните ваши данные:
+Откройте файл `.env`:
+```bash
+nano .env
+```
+Заполните ваши данные (для работы по внутренней сети используйте адрес `http://remnawave:3000`):
 
 ```env
 # Ваш токен Telegram бота от BotFather
 BOT_TOKEN=123456789:ABCdefGHIjklMNOpqrSTUvwxYZ
 
-# Базовый URL вашей панели Remnawave (с https://)
-REMNAWAVE_API_URL=https://panel.yourdomain.com
+# Внутренний адрес панели в сети Docker (рекомендуется)
+REMNAWAVE_API_URL=http://remnawave:3000
 
-# X-Api-Key, сгенерированный в портале авторизации Caddy (или API токен Remnawave)
-REMNAWAVE_X_API_KEY=YxOovHLnpkcmSig508...
+# X-Api-Key, сгенерированный в самой панели Remnawave (Admin -> System -> API Tokens)
+REMNAWAVE_X_API_KEY=eyJhbGciOi...
 ```
 
 ### 3. Запустите бота:
 
-Существует два способа запуска: **через внутреннюю сеть Docker (рекомендуется)** и обычный.
-
-**Способ А: Через внутреннюю сеть Docker (Рекомендуется, если бот на том же сервере)**
-Этот способ позволяет боту обращаться к панели напрямую в обход защиты Caddy.
-В `.env` файле укажите:
-* `REMNAWAVE_API_URL=http://remnawave:3000`
-* `REMNAWAVE_X_API_KEY=ваш_длинный_токен_из_самой_панели_remnawave`
-
-Запустите контейнер, подключив его к сети панели (обычно это `remnawave-network`):
+Запустите контейнер командой (обратите внимание на пробел между docker и compose):
 ```bash
-docker pull ghcr.io/alexporteb/remnabot:main
-docker run -d --name remnabot --network remnawave-network --env-file .env --restart unless-stopped ghcr.io/alexporteb/remnabot:main
-```
-
-**Способ Б: Обычный запуск (Если бот на другом сервере)**
-В `.env` укажите публичный домен `https://panel.domain.com` и ключ от Caddy Auth Portal (если API закрыт).
-```bash
-docker pull ghcr.io/alexporteb/remnabot:main
-docker run -d --name remnabot --env-file .env --restart unless-stopped ghcr.io/alexporteb/remnabot:main
+docker compose pull
+docker compose up -d
 ```
 
 ### 4. Просмотр логов:
 
 ```bash
-docker logs -f remnabot
+docker compose logs -f
+```
+
+## Полное удаление бота
+
+Если вы хотите полностью удалить бота со всеми его файлами и контейнерами, выполните эту команду одной строкой:
+```bash
+cd /opt/remnawave/remnabot && docker compose down && cd .. && rm -rf remnabot && docker rmi ghcr.io/alexporteb/remnabot:main
 ```
