@@ -35,8 +35,22 @@ REMNAWAVE_X_API_KEY=YxOovHLnpkcmSig508...
 
 ### 3. Запустите бота:
 
-Скачайте образ и запустите контейнер обычной командой `docker run`:
+Существует два способа запуска: **через внутреннюю сеть Docker (рекомендуется)** и обычный.
 
+**Способ А: Через внутреннюю сеть Docker (Рекомендуется, если бот на том же сервере)**
+Этот способ позволяет боту обращаться к панели напрямую в обход защиты Caddy.
+В `.env` файле укажите:
+* `REMNAWAVE_API_URL=http://remnawave:3000`
+* `REMNAWAVE_X_API_KEY=ваш_длинный_токен_из_самой_панели_remnawave`
+
+Запустите контейнер, подключив его к сети панели (обычно это `remnawave-network`):
+```bash
+docker pull ghcr.io/alexporteb/remnabot:main
+docker run -d --name remnabot --network remnawave-network --env-file .env --restart unless-stopped ghcr.io/alexporteb/remnabot:main
+```
+
+**Способ Б: Обычный запуск (Если бот на другом сервере)**
+В `.env` укажите публичный домен `https://panel.domain.com` и ключ от Caddy Auth Portal (если API закрыт).
 ```bash
 docker pull ghcr.io/alexporteb/remnabot:main
 docker run -d --name remnabot --env-file .env --restart unless-stopped ghcr.io/alexporteb/remnabot:main
