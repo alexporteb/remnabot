@@ -1,6 +1,6 @@
 import { Telegraf, Markup } from 'telegraf';
 import dotenv from 'dotenv';
-import { getUserByTelegramId, getSubscriptionInfo } from './api';
+import { getUserByTelegramId, getSubscriptionInfo, deleteAllHwidDevices } from './api';
 
 dotenv.config();
 
@@ -37,6 +37,7 @@ async function sendMainMenu(ctx: any, username: string) {
     const keyboard = Markup.inlineKeyboard([
         [Markup.button.callback('📊 Мой профиль', 'action_profile')],
         [Markup.button.callback('🔗 Моя подписка', 'action_subscription')],
+        [Markup.button.callback('📱 Сбросить устройства (HWID)', 'action_reset_hwid')],
     ]);
 
     if (ctx.callbackQuery) {
@@ -108,13 +109,7 @@ bot.action('action_subscription', async (ctx) => {
 
         let text = `🔗 **Ваша подписка**\n\n`;
         text += `**Ссылка на автонастройку:**\n\`${subInfo.subscriptionUrl}\`\n\n`;
-        
-        if (subInfo.links && subInfo.links.length > 0) {
-            text += `**Узлы для ручного подключения:**\n`;
-            subInfo.links.forEach((link, idx) => {
-                text += `\n*Узел ${idx + 1}:*\n\`${link}\`\n`;
-            });
-        }
+        text += `_Скопируйте эту ссылку и вставьте в ваше приложение (например, v2rayNG или NekoBox)._`;
 
         const keyboard = Markup.inlineKeyboard([
             [Markup.button.callback('⬅️ Назад', 'action_back')]
@@ -125,6 +120,24 @@ bot.action('action_subscription', async (ctx) => {
     } catch (e) {
         console.error(e);
         await ctx.answerCbQuery("Ошибка при получении подписки.", { show_alert: true });
+    }
+});
+
+bot.action('action_reset_hwid', async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId) return;
+
+    try {
+        const user = await getUserByTelegramId(telegramId);
+        if (!user) {
+            return ctx.answerCbQuery(unauthorizedMessage, { show_alert: true });
+        }
+
+        await deleteAllHwidDevices(user.uuid);
+        await ctx.answerCbQuery("✅ Ваши устройства успешно сброшены!", { show_alert: true });
+    } catch (e) {
+        console.error(e);
+        await ctx.answerCbQuery("Ошибка при сбросе устройств.", { show_alert: true });
     }
 });
 

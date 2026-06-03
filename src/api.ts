@@ -83,3 +83,12 @@ export async function getSubscriptionInfo(shortUuid: string): Promise<Subscripti
         throw error;
     }
 }
+
+export async function deleteAllHwidDevices(userUuid: string): Promise<void> {
+    try {
+        await apiClient.post(`/api/hwid/devices/delete-all`, { userUuid });
+    } catch (error) {
+        console.error(`Error deleting HWID devices for ${userUuid}:`, error instanceof AxiosError ? error.message : error);
+        throw error;
+    }
+}
