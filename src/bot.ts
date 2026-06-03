@@ -1,5 +1,6 @@
 import { Telegraf, Markup } from 'telegraf';
 import dotenv from 'dotenv';
+import { startCronJobs } from './cron';
 import { getUserByTelegramId, getSubscriptionInfo, deleteAllHwidDevices, getUserHwidDevices, deleteHwidDevice, getSubscriptionSettings } from './api';
 
 dotenv.config();
@@ -308,3 +309,6 @@ bot.launch().then(() => {
 // Enable graceful stop
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
+
+// Start cron jobs
+startCronJobs(bot);

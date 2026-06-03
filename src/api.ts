@@ -31,6 +31,7 @@ export interface User {
     expireAt: string;
     trafficLimitStrategy: string;
     hwidDeviceLimit: number | null;
+    telegramId: number | null;
     userTraffic: {
         usedTrafficBytes: number;
         lifetimeUsedTrafficBytes: number;
@@ -72,6 +73,33 @@ export async function getUserByTelegramId(telegramId: number): Promise<User | nu
         console.error(`Error fetching user by telegram ID ${telegramId}:`, error instanceof AxiosError ? error.message : error);
         throw error;
     }
+}
+
+export async function getAllUsers(): Promise<User[]> {
+    const allUsers: User[] = [];
+    let start = 0;
+    const size = 50;
+
+    while (true) {
+        try {
+            const response = await apiClient.get(`/api/users`, { params: { start, size } });
+            const users = response.data?.response?.users || [];
+            if (users.length === 0) {
+                break;
+            }
+            allUsers.push(...users);
+            start += size;
+            
+            // Safety check to prevent infinite loops in case of API bug
+            if (users.length < size) {
+                break;
+            }
+        } catch (error) {
+            console.error(`Error fetching users batch at start ${start}:`, error instanceof AxiosError ? error.message : error);
+            break;
+        }
+    }
+    return allUsers;
 }
 
 export async function getSubscriptionInfo(shortUuid: string): Promise<SubscriptionInfo | null> {
