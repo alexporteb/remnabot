@@ -1,4 +1,4 @@
-# Remnabot - Telegram Bot for Remnawave VLESS
+# Remnabot - Telegram Bot for Remnawave
 
 Этот бот предназначен для пользователей панели Remnawave (VLESS). Он позволяет пользователям получать информацию о своем профиле (остаток трафика, статус, дату истечения) и ссылки на подписку прямо через Telegram.
 
