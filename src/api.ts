@@ -15,6 +15,7 @@ const apiClient = axios.create({
     baseURL: API_URL,
     headers: {
         'X-Api-Key': API_KEY,
+        'Authorization': `Bearer ${API_KEY}`,
         'Content-Type': 'application/json',
         // Remnawave's ProxyCheckMiddleware requires these headers to accept direct local connections
         'X-Forwarded-Proto': 'https',
