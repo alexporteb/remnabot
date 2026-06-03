@@ -1,7 +1,7 @@
 import { Telegraf, Markup } from 'telegraf';
 import dotenv from 'dotenv';
 import { startCronJobs } from './cron';
-import { getUserByTelegramId, getSubscriptionInfo, deleteAllHwidDevices, getUserHwidDevices, deleteHwidDevice, getSubscriptionSettings } from './api';
+import { getUserByTelegramId, getSubscriptionInfo, deleteAllHwidDevices, getUserHwidDevices, deleteHwidDevice, getSubscriptionSettings, revokeUserSubscription } from './api';
 
 dotenv.config();
 
@@ -129,6 +129,8 @@ bot.action('action_subscription', async (ctx) => {
         text += `_Скопируйте эту ссылку и вставьте в ваше приложение._`;
 
         const keyboard = Markup.inlineKeyboard([
+            [Markup.button.url('🌐 Открыть в браузере', subInfo.subscriptionUrl)],
+            [Markup.button.callback('🔄 Пересоздать ссылку', 'action_revoke_sub')],
             [Markup.button.callback('📱 Управление устройствами (HWID)', 'action_hwid_menu')],
             [Markup.button.callback('⬅️ Назад', 'action_back')]
         ]);
@@ -138,6 +140,46 @@ bot.action('action_subscription', async (ctx) => {
     } catch (e) {
         console.error(e);
         await ctx.answerCbQuery("Ошибка при получении подписки.", { show_alert: true });
+    }
+});
+
+bot.action('action_revoke_sub', async (ctx) => {
+    const telegramId = ctx.from?.id;
+    const username = ctx.from?.username || ctx.from?.first_name || 'Unknown';
+    if (!telegramId) return;
+
+    console.log(`[SUBSCRIPTION_REVOKE] User ${username} (ID: ${telegramId}) requested to recreate subscription.`);
+    try {
+        const user = await getUserByTelegramId(telegramId);
+        if (!user) {
+            return ctx.answerCbQuery(unauthorizedMessage, { show_alert: true });
+        }
+
+        await revokeUserSubscription(user.uuid);
+        
+        // Fetch new subscription info
+        const subInfo = await getSubscriptionInfo(user.shortUuid);
+        if (!subInfo || !subInfo.isFound) {
+            return ctx.answerCbQuery("Подписка пересоздана, но информация не найдена.", { show_alert: true });
+        }
+
+        let text = `🔗 **Ваша подписка**\n\n`;
+        text += `✅ **Ссылка успешно обновлена!**\n\n`;
+        text += `**Ссылка на автонастройку:**\n\`${subInfo.subscriptionUrl}\`\n\n`;
+        text += `_Скопируйте эту ссылку и вставьте в ваше приложение._`;
+
+        const keyboard = Markup.inlineKeyboard([
+            [Markup.button.url('🌐 Открыть в браузере', subInfo.subscriptionUrl)],
+            [Markup.button.callback('🔄 Пересоздать ссылку', 'action_revoke_sub')],
+            [Markup.button.callback('📱 Управление устройствами (HWID)', 'action_hwid_menu')],
+            [Markup.button.callback('⬅️ Назад', 'action_back')]
+        ]);
+
+        await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+        await ctx.answerCbQuery("✅ Ссылка успешно пересоздана!", { show_alert: false });
+    } catch (e) {
+        console.error(e);
+        await ctx.answerCbQuery("Ошибка при пересоздании подписки.", { show_alert: true });
     }
 });
 

@@ -169,3 +169,12 @@ export async function getSubscriptionSettings(): Promise<SubscriptionSettings | 
         return null;
     }
 }
+
+export async function revokeUserSubscription(userUuid: string): Promise<void> {
+    try {
+        await apiClient.post(`/api/users/${userUuid}/actions/revoke`, {});
+    } catch (error) {
+        console.error(`Error revoking subscription for ${userUuid}:`, error instanceof AxiosError ? error.message : error);
+        throw error;
+    }
+}
