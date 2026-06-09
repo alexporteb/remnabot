@@ -14,6 +14,11 @@ if (!BOT_TOKEN) {
 
 const bot = new Telegraf(BOT_TOKEN);
 
+function escapeMarkdown(text: string): string {
+    if (!text) return '';
+    return text.replace(/[_*[\]`]/g, '\\$&');
+}
+
 // Generic error for unauthorized users
 const unauthorizedMessage = "Команда не распознана.";
 
@@ -35,7 +40,8 @@ bot.start(async (ctx) => {
 });
 
 async function sendMainMenu(ctx: any, username: string) {
-    const message = `👋 Добро пожаловать, **${username}**!\n\nВыберите нужное действие из меню ниже:`;
+    const safeUsername = escapeMarkdown(username);
+    const message = `👋 Добро пожаловать, **${safeUsername}**!\n\nВыберите нужное действие из меню ниже:`;
     
     const keyboard = Markup.inlineKeyboard([
         [Markup.button.callback('📊 Мой профиль', 'action_profile')],
@@ -88,8 +94,9 @@ bot.action('action_profile', async (ctx) => {
         const isUnlimitedTraffic = s.trafficLimit === '0 B' || s.trafficLimit === '0' || s.trafficLimitBytes === '0' || Number(s.trafficLimitBytes) === 0;
         const trafficLimitText = isUnlimitedTraffic ? '∞' : s.trafficLimit;
 
+        const safeUsername = escapeMarkdown(s.username);
         const text = `📊 **Ваш профиль**\n\n` +
-            `👤 **Имя пользователя:** ${s.username}\n` +
+            `👤 **Имя пользователя:** ${safeUsername}\n` +
             `🚦 **Статус:** ${status}\n` +
             `⏳ **Осталось времени:** ${expireText}\n` +
             `📈 **Использовано трафика:** ${s.trafficUsed} из ${trafficLimitText}\n` +
@@ -239,7 +246,7 @@ bot.action('action_hwid_menu', async (ctx) => {
             text += `_У вас нет подключенных устройств._`;
         } else {
             devices.forEach((d, i) => {
-                const name = d.deviceModel || d.osVersion || d.platform || 'Неизвестное устройство';
+                const name = escapeMarkdown(d.deviceModel || d.osVersion || d.platform || 'Неизвестное устройство');
                 text += `${i + 1}. **${name}**\n   └ Добавлено: ${new Date(d.createdAt).toLocaleDateString('ru-RU')}\n`;
                 // Add a button to delete this specific device
                 // Limit is 64 bytes. "del_hwid:" + 36 = 45 bytes.
@@ -290,7 +297,7 @@ bot.action(/del_hwid:(.+)/, async (ctx) => {
             text += `_У вас нет подключенных устройств._`;
         } else {
             devices.forEach((d, i) => {
-                const name = d.deviceModel || d.osVersion || d.platform || 'Неизвестное устройство';
+                const name = escapeMarkdown(d.deviceModel || d.osVersion || d.platform || 'Неизвестное устройство');
                 text += `${i + 1}. **${name}**\n   └ Добавлено: ${new Date(d.createdAt).toLocaleDateString('ru-RU')}\n`;
                 buttons.push([Markup.button.callback(`❌ Удалить устройство ${i + 1}`, `del_hwid:${d.hwid}`)]);
             });
