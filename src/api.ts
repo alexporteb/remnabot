@@ -178,3 +178,23 @@ export async function revokeUserSubscription(userUuid: string): Promise<void> {
         throw error;
     }
 }
+
+export async function extendUserSubscription(userUuid: string, days: number): Promise<void> {
+    try {
+        await apiClient.post(`/api/users/bulk/extend-expiration-date`, {
+            uuids: [userUuid],
+            extendDays: days
+        });
+        
+        // Also ensure the user is ACTIVE
+        await apiClient.post(`/api/users/bulk/update`, {
+            uuids: [userUuid],
+            fields: {
+                status: 'ACTIVE'
+            }
+        });
+    } catch (error) {
+        console.error(`Error extending subscription for ${userUuid}:`, error instanceof AxiosError ? error.message : error);
+        throw error;
+    }
+}

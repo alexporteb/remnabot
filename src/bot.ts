@@ -1,7 +1,7 @@
 import { Telegraf, Markup } from 'telegraf';
 import dotenv from 'dotenv';
 import { startCronJobs } from './cron';
-import { getUserByTelegramId, getSubscriptionInfo, deleteAllHwidDevices, getUserHwidDevices, deleteHwidDevice, getSubscriptionSettings, revokeUserSubscription } from './api';
+import { getUserByTelegramId, getSubscriptionInfo, deleteAllHwidDevices, getUserHwidDevices, deleteHwidDevice, getSubscriptionSettings, revokeUserSubscription, getAllUsers, extendUserSubscription } from './api';
 
 dotenv.config();
 
@@ -21,6 +21,15 @@ function escapeMarkdown(text: string): string {
 
 // Generic error for unauthorized users
 const unauthorizedMessage = "Команда не распознана.";
+
+// Admin states
+const adminBroadcastState = new Map<number, boolean>();
+
+function isAdmin(telegramId: number): boolean {
+    const adminIdsStr = process.env.ADMIN_TELEGRAM_IDS || '';
+    const adminIds = adminIdsStr.split(',').map(id => parseInt(id.trim(), 10)).filter(id => !isNaN(id));
+    return adminIds.includes(telegramId);
+}
 
 bot.start(async (ctx) => {
     const telegramId = ctx.from.id;
@@ -365,9 +374,169 @@ bot.action('action_back', async (ctx) => {
     }
 });
 
-// Any other messages
-bot.on('message', (ctx) => {
+// --- ADMIN PANEL ---
+bot.command('admin', async (ctx) => {
+    const telegramId = ctx.from.id;
+    if (!isAdmin(telegramId)) return;
+
+    adminBroadcastState.set(telegramId, false); // clear any pending broadcast state
+
+    const text = `👑 **Панель Администратора**\n\nВыберите нужное действие:`;
+    const keyboard = Markup.inlineKeyboard([
+        [Markup.button.callback('👥 Общий список пользователей', 'admin_users_page:0')],
+        [Markup.button.callback('📢 Отправить рассылку всем', 'admin_broadcast_init')]
+    ]);
+
+    await ctx.reply(text, { parse_mode: 'Markdown', ...keyboard });
+});
+
+bot.action('admin_broadcast_init', async (ctx) => {
     const telegramId = ctx.from?.id;
+    if (!telegramId || !isAdmin(telegramId)) return;
+
+    adminBroadcastState.set(telegramId, true);
+
+    const text = `📢 **Ручная рассылка**\n\nОтправьте мне сообщение (текст, картинку или кружок), и я разошлю его всем пользователям бота.\n\nДля отмены нажмите кнопку ниже.`;
+    const keyboard = Markup.inlineKeyboard([
+        [Markup.button.callback('❌ Отмена', 'admin_broadcast_cancel')]
+    ]);
+
+    await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+    await ctx.answerCbQuery();
+});
+
+bot.action('admin_broadcast_cancel', async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId || !isAdmin(telegramId)) return;
+
+    adminBroadcastState.set(telegramId, false);
+    await ctx.editMessageText("❌ Рассылка отменена.");
+    await ctx.answerCbQuery();
+});
+
+async function renderAdminUsersPage(ctx: any, page: number) {
+    const users = await getAllUsers();
+    
+    // Calculate daysLeft for sorting and display
+    const usersWithDays = users.map(u => {
+        let daysLeft = null;
+        if (u.expireAt) {
+            const diff = new Date(u.expireAt).getTime() - Date.now();
+            daysLeft = Math.ceil(diff / (1000 * 60 * 60 * 24));
+        }
+        return { ...u, daysLeft };
+    });
+
+    // Sort users: EXPIRED first, then others, or sort by days left
+    usersWithDays.sort((a, b) => {
+        if (a.status === 'EXPIRED' && b.status !== 'EXPIRED') return -1;
+        if (a.status !== 'EXPIRED' && b.status === 'EXPIRED') return 1;
+        return (a.daysLeft || 0) - (b.daysLeft || 0);
+    });
+
+    const PAGE_SIZE = 10;
+    const totalPages = Math.ceil(usersWithDays.length / PAGE_SIZE) || 1;
+    if (page < 0) page = 0;
+    if (page >= totalPages) page = totalPages - 1;
+
+    const startIdx = page * PAGE_SIZE;
+    const pageUsers = usersWithDays.slice(startIdx, startIdx + PAGE_SIZE);
+
+    let text = `👥 **Список пользователей (Страница ${page + 1}/${totalPages})**\n\n`;
+    text += `_Нажмите на кнопку с именем под сообщением, чтобы моментально продлить подписку на 1 месяц._\n\n`;
+
+    const buttons: any[][] = [];
+
+    pageUsers.forEach((u, i) => {
+        const isExpired = u.status === 'EXPIRED';
+        const statusEmoji = isExpired ? '🔴' : '🟢';
+        let expireStr = isExpired ? 'Истекла' : `${u.daysLeft} дн.`;
+        if (u.daysLeft === null || u.daysLeft === undefined || u.daysLeft > 3650) expireStr = '∞';
+
+        const safeUsername = escapeMarkdown(u.username);
+        text += `${startIdx + i + 1}. ${statusEmoji} **${safeUsername}** - ${expireStr}\n`;
+        
+        // Button for each user
+        buttons.push([Markup.button.callback(`💰 Продлить ${u.username} (+30 дн.)`, `admin_extend:${u.uuid}:${page}`)]);
+    });
+
+    // Pagination buttons
+    const navRow = [];
+    if (page > 0) navRow.push(Markup.button.callback('⬅️ Пред.', `admin_users_page:${page - 1}`));
+    if (page < totalPages - 1) navRow.push(Markup.button.callback('След. ➡️', `admin_users_page:${page + 1}`));
+    if (navRow.length > 0) buttons.push(navRow);
+
+    if (ctx.callbackQuery) {
+        await ctx.editMessageText(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+    } else {
+        await ctx.reply(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+    }
+}
+
+bot.action(/admin_users_page:(\d+)/, async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId || !isAdmin(telegramId)) return;
+
+    const page = parseInt(ctx.match[1], 10);
+    try {
+        await renderAdminUsersPage(ctx, page);
+        await ctx.answerCbQuery();
+    } catch (e) {
+        console.error(e);
+        await ctx.answerCbQuery("Ошибка.", { show_alert: true });
+    }
+});
+
+bot.action(/admin_extend:(.+):(\d+)/, async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId || !isAdmin(telegramId)) return;
+
+    const targetUuid = ctx.match[1];
+    const page = parseInt(ctx.match[2], 10);
+
+    try {
+        await extendUserSubscription(targetUuid, 30);
+        await ctx.answerCbQuery("✅ Подписка продлена на 30 дней!", { show_alert: true });
+        await renderAdminUsersPage(ctx, page);
+    } catch (e) {
+        console.error(e);
+        await ctx.answerCbQuery("Ошибка при продлении.", { show_alert: true });
+    }
+});
+
+// Any other messages
+bot.on('message', async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId) return;
+
+    // Check if admin is broadcasting
+    if (isAdmin(telegramId) && adminBroadcastState.get(telegramId)) {
+        adminBroadcastState.set(telegramId, false); // reset state
+
+        const message = ctx.message;
+        const users = await getAllUsers();
+        const telegramUsers = users.filter(u => u.telegramId !== null && u.telegramId !== undefined);
+        
+        await ctx.reply(`⏳ Начинаю рассылку для ${telegramUsers.length} пользователей...`);
+
+        let success = 0;
+        let fail = 0;
+        for (const u of telegramUsers) {
+            if (!u.telegramId) continue;
+            try {
+                await ctx.telegram.copyMessage(u.telegramId, ctx.chat.id, message.message_id);
+                success++;
+            } catch (err) {
+                fail++;
+            }
+            // 1 sec delay to avoid rate limit
+            await new Promise(r => setTimeout(r, 1000));
+        }
+
+        await ctx.reply(`✅ Рассылка завершена!\nУспешно: ${success}\nОшибок: ${fail}`);
+        return;
+    }
+
     const text = 'text' in ctx.message ? ctx.message.text : 'non-text message';
     console.log(`[MESSAGE] Unhandled message from ID ${telegramId}: ${text}`);
     ctx.reply(unauthorizedMessage);
