@@ -598,9 +598,9 @@ async function renderAdminUserDetail(ctx: any, targetUuid: string, page: number)
     const buttons = [];
     
     if (user.status === 'DISABLED') {
-        buttons.push([Markup.button.callback('▶️ Возобновить доступ', `admin_change_status:${user.uuid}:ACTIVE:${page}`)]);
+        buttons.push([Markup.button.callback('▶️ Возобновить доступ', `a_st:${user.uuid}:A:${page}`)]);
     } else {
-        buttons.push([Markup.button.callback('🛑 Приостановить доступ', `admin_change_status:${user.uuid}:DISABLED:${page}`)]);
+        buttons.push([Markup.button.callback('🛑 Приостановить доступ', `a_st:${user.uuid}:D:${page}`)]);
     }
 
     buttons.push([Markup.button.callback(`⏳ Продлить подписку`, `admin_extend_init:${user.uuid}:${page}`)]);
@@ -620,12 +620,12 @@ async function renderAdminUserDetail(ctx: any, targetUuid: string, page: number)
     }
 }
 
-bot.action(/admin_change_status:(.+):(.+):(\d+)/, async (ctx) => {
+bot.action(/a_st:(.+):([AD]):(\d+)/, async (ctx) => {
     const telegramId = ctx.from?.id;
     if (!telegramId || !isAdmin(telegramId)) return;
 
     const targetUuid = ctx.match[1];
-    const newStatus = ctx.match[2] as 'ACTIVE' | 'DISABLED';
+    const newStatus = ctx.match[2] === 'A' ? 'ACTIVE' : 'DISABLED';
     const page = parseInt(ctx.match[3], 10);
 
     try {
