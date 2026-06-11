@@ -445,8 +445,9 @@ bot.action('admin_broadcast_cancel', async (ctx) => {
     if (!telegramId || !isAdmin(telegramId)) return;
 
     adminBroadcastState.set(telegramId, false);
-    await ctx.editMessageText("❌ Рассылка отменена.");
-    await ctx.answerCbQuery();
+    adminDmState.delete(telegramId);
+    await ctx.answerCbQuery("Рассылка/сообщение отменено.");
+    await renderAdminMainMenu(ctx);
 });
 
 async function renderAdminUsersPage(ctx: any, page: number) {
