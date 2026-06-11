@@ -2,7 +2,7 @@ import { Telegraf, Markup } from 'telegraf';
 import dotenv from 'dotenv';
 import { startCronJobs, reloadCronJobs } from './cron';
 import { loadConfig, saveConfig } from './config';
-import { getUserByTelegramId, getSubscriptionInfo, deleteAllHwidDevices, getUserHwidDevices, deleteHwidDevice, getSubscriptionSettings, revokeUserSubscription, getAllUsers, extendUserSubscription, createUser } from './api';
+import { getUserByTelegramId, getSubscriptionInfo, deleteAllHwidDevices, getUserHwidDevices, deleteHwidDevice, getSubscriptionSettings, revokeUserSubscription, getAllUsers, extendUserSubscription, createUser, changeUserStatus } from './api';
 
 dotenv.config();
 
@@ -534,6 +534,16 @@ bot.action(/admin_user_detail:(.+):(\d+)/, async (ctx) => {
     const targetUuid = ctx.match[1];
     const page = parseInt(ctx.match[2], 10);
 
+    try {
+        await renderAdminUserDetail(ctx, targetUuid, page);
+        await ctx.answerCbQuery();
+    } catch (e) {
+        console.error(e);
+        await ctx.answerCbQuery("Ошибка.", { show_alert: true });
+    }
+});
+
+async function renderAdminUserDetail(ctx: any, targetUuid: string, page: number) {
     let users = await getAllUsers();
     const user = users.find(u => u.uuid === targetUuid);
     
@@ -572,18 +582,28 @@ bot.action(/admin_user_detail:(.+):(\d+)/, async (ctx) => {
         expireStr = '∞ (Безлимит)';
     }
 
-    const isRed = isExpired || (!isUnlimited && daysLeft < 30);
-    const statusEmoji = isRed ? '🔴' : '🟢';
+    const isRed = isExpired || user.status === 'DISABLED' || (!isUnlimited && daysLeft < 30);
+    const statusEmoji = user.status === 'DISABLED' ? '🛑' : (isRed ? '🔴' : '🟢');
+    if (user.status === 'DISABLED') expireStr = 'Остановлена';
+
+    const usedTrafficGb = user.userTraffic?.usedTrafficBytes ? (user.userTraffic.usedTrafficBytes / 1073741824).toFixed(2) : '0.00';
+    const limitGb = user.trafficLimitBytes ? (user.trafficLimitBytes / 1073741824).toFixed(2) + ' ГБ' : 'Безлимит';
+    const lifetimeGb = user.userTraffic?.lifetimeUsedTrafficBytes ? (user.userTraffic.lifetimeUsedTrafficBytes / 1073741824).toFixed(2) : '0.00';
 
     const text = `👤 **Профиль пользователя:** ${escapeMarkdown(user.username)}\n` +
                  `⏳ **Статус:** ${statusEmoji} ${expireStr}\n` +
+                 `📊 **Трафик:** ${usedTrafficGb} ГБ / ${limitGb} (Всего: ${lifetimeGb} ГБ)\n` +
                  `🆔 **Telegram ID:** ${user.telegramId || 'Не привязан'}` + tgUsernameStr;
 
     const buttons = [];
     
-    if (!isUnlimited) {
-        buttons.push([Markup.button.callback(`💰 Продлить на 1 мес.`, `admin_extend:${user.uuid}:${page}`)]);
+    if (user.status === 'DISABLED') {
+        buttons.push([Markup.button.callback('▶️ Возобновить доступ', `admin_change_status:${user.uuid}:ACTIVE:${page}`)]);
+    } else {
+        buttons.push([Markup.button.callback('🛑 Приостановить доступ', `admin_change_status:${user.uuid}:DISABLED:${page}`)]);
     }
+
+    buttons.push([Markup.button.callback(`⏳ Продлить подписку`, `admin_extend_init:${user.uuid}:${page}`)]);
     
     if (user.telegramId) {
         buttons.push([Markup.button.callback(`✉️ Отправить сообщение`, `admin_dm_init:${user.telegramId}`)]);
@@ -591,22 +611,64 @@ bot.action(/admin_user_detail:(.+):(\d+)/, async (ctx) => {
     
     buttons.push([Markup.button.callback('🔙 Назад к списку', `admin_users_page:${page}`)]);
 
-    await ctx.editMessageText(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
-    await ctx.answerCbQuery();
+    if (ctx.callbackQuery && ctx.callbackQuery.message?.text !== text) {
+        // Only edit if something changed or if it's a callback
+        try {
+            await ctx.editMessageText(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+        } catch(e) {}
+    }
+}
+
+bot.action(/admin_change_status:(.+):(.+):(\d+)/, async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId || !isAdmin(telegramId)) return;
+
+    const targetUuid = ctx.match[1];
+    const newStatus = ctx.match[2] as 'ACTIVE' | 'DISABLED';
+    const page = parseInt(ctx.match[3], 10);
+
+    try {
+        await changeUserStatus(targetUuid, newStatus);
+        console.log(`[ADMIN] Telegram ID ${telegramId} changed status for user UUID ${targetUuid} to ${newStatus}.`);
+        await renderAdminUserDetail(ctx, targetUuid, page);
+        await ctx.answerCbQuery(newStatus === 'ACTIVE' ? "✅ Доступ возобновлен" : "🛑 Доступ приостановлен", { show_alert: true });
+    } catch (e) {
+        console.error(e);
+        await ctx.answerCbQuery("Ошибка.", { show_alert: true });
+    }
 });
 
-bot.action(/admin_extend:(.+):(\d+)/, async (ctx) => {
+bot.action(/admin_extend_init:(.+):(\d+)/, async (ctx) => {
     const telegramId = ctx.from?.id;
     if (!telegramId || !isAdmin(telegramId)) return;
 
     const targetUuid = ctx.match[1];
     const page = parseInt(ctx.match[2], 10);
 
+    const text = `⏳ **Продление подписки**\n\nВыберите, на какой срок вы хотите продлить подписку пользователя:`;
+    const keyboard = Markup.inlineKeyboard([
+        [Markup.button.callback('1 месяц', `admin_extend:${targetUuid}:30:${page}`), Markup.button.callback('3 месяца', `admin_extend:${targetUuid}:90:${page}`)],
+        [Markup.button.callback('На год', `admin_extend:${targetUuid}:365:${page}`), Markup.button.callback('Безлимит', `admin_extend:${targetUuid}:36500:${page}`)],
+        [Markup.button.callback('🔙 Назад к профилю', `admin_user_detail:${targetUuid}:${page}`)]
+    ]);
+
+    await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+    await ctx.answerCbQuery();
+});
+
+bot.action(/admin_extend:(.+):(\d+):(\d+)/, async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId || !isAdmin(telegramId)) return;
+
+    const targetUuid = ctx.match[1];
+    const days = parseInt(ctx.match[2], 10);
+    const page = parseInt(ctx.match[3], 10);
+
     try {
-        await extendUserSubscription(targetUuid, 30);
-        console.log(`[ADMIN] Telegram ID ${telegramId} extended subscription for user UUID ${targetUuid} by 30 days.`);
-        await ctx.answerCbQuery("✅ Подписка продлена на 30 дней!", { show_alert: true });
-        await renderAdminUsersPage(ctx, page);
+        await extendUserSubscription(targetUuid, days);
+        console.log(`[ADMIN] Telegram ID ${telegramId} extended subscription for user UUID ${targetUuid} by ${days} days.`);
+        await renderAdminUserDetail(ctx, targetUuid, page);
+        await ctx.answerCbQuery(`✅ Подписка продлена на ${days} дней!`, { show_alert: true });
     } catch (e) {
         console.error(e);
         await ctx.answerCbQuery("Ошибка при продлении.", { show_alert: true });

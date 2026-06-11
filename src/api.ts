@@ -210,4 +210,16 @@ export async function createUser(username: string, days: number, telegramId?: nu
         console.error(`Error creating user ${username}:`, error instanceof AxiosError ? error.message : error);
         throw error;
     }
+}
+
+export async function changeUserStatus(userUuid: string, status: 'ACTIVE' | 'DISABLED'): Promise<void> {
+    try {
+        await apiClient.post(`/api/users/bulk/update`, {
+            uuids: [userUuid],
+            fields: { status }
+        });
+    } catch (error) {
+        console.error(`Error changing status for ${userUuid}:`, error instanceof AxiosError ? error.message : error);
+        throw error;
+    }
 } 
