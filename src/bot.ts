@@ -204,6 +204,7 @@ bot.action('action_revoke_sub_execute', async (ctx) => {
         }
 
         await revokeUserSubscription(user.uuid);
+        console.log(`[SUBSCRIPTION_REVOKE] User ${username} (ID: ${telegramId}) successfully recreated their subscription.`);
         
         // Wait 2.5 seconds for Remnawave backend to regenerate the subscription
         await new Promise(resolve => setTimeout(resolve, 2500));
@@ -304,6 +305,7 @@ bot.action(/del_hwid:(.+)/, async (ctx) => {
         if (!user) return ctx.answerCbQuery(unauthorizedMessage, { show_alert: true });
 
         await deleteHwidDevice(user.uuid, hwid);
+        console.log(`[HWID_DELETE] User ${username} (ID: ${telegramId}) successfully deleted device ${hwid}.`);
         await ctx.answerCbQuery("✅ Устройство успешно удалено!", { show_alert: true });
         
         // Refresh HWID menu by simulating clicking the HWID menu button again
@@ -350,6 +352,7 @@ bot.action('action_reset_hwid', async (ctx) => {
         }
 
         await deleteAllHwidDevices(user.uuid);
+        console.log(`[HWID_RESET] User ${username} (ID: ${telegramId}) successfully reset all devices.`);
         await ctx.answerCbQuery("✅ Ваши устройства успешно сброшены!", { show_alert: true });
         
         // Return to subscription menu
@@ -746,7 +749,7 @@ async function finalizeCreateUser(ctx: any, adminTelegramId: number, state: AddU
     try {
         let msg = await ctx.reply(`⏳ Создаю пользователя ${escapeMarkdown(state.username!)}...`);
         await createUser(state.username!, state.days!, targetTelegramId);
-        console.log(`[ADMIN] Telegram ID ${adminTelegramId} created user ${state.username} for ${state.days} days.`);
+        console.log(`[ADMIN_CREATE_USER] Telegram ID ${adminTelegramId} successfully created user ${state.username} for ${state.days} days.`);
         adminAddUserState.delete(adminTelegramId);
 
         const keyboard = Markup.inlineKeyboard([
@@ -844,7 +847,7 @@ bot.on('message', async (ctx) => {
             await new Promise(r => setTimeout(r, 1000));
         }
 
-        console.log(`[ADMIN] Telegram ID ${telegramId} sent broadcast. Success: ${success}, Fail: ${fail}`);
+        console.log(`[ADMIN_BROADCAST] Telegram ID ${telegramId} sent broadcast. Success: ${success}, Fail: ${fail}`);
         await ctx.reply(`✅ Рассылка завершена!\nУспешно: ${success}\nОшибок: ${fail}`);
         return;
     }
@@ -857,7 +860,7 @@ bot.on('message', async (ctx) => {
         const message = ctx.message;
         try {
             await ctx.telegram.copyMessage(targetTelegramId, ctx.chat.id, message.message_id);
-            console.log(`[ADMIN] Telegram ID ${telegramId} sent DM to Telegram ID ${targetTelegramId}.`);
+            console.log(`[ADMIN_DM] Telegram ID ${telegramId} sent DM to Telegram ID ${targetTelegramId}.`);
             await ctx.reply(`✅ Сообщение успешно отправлено пользователю!`);
         } catch (err) {
             await ctx.reply(`❌ Ошибка отправки сообщения. Возможно, пользователь заблокировал бота.`);
