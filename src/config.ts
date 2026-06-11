@@ -7,7 +7,7 @@ export interface BotConfig {
     paymentNotificationMessage: string;
 }
 
-const configPath = path.join(__dirname, '../../data/config.json');
+const configPath = path.join(__dirname, '../data/config.json');
 
 export function loadConfig(): BotConfig {
     try {

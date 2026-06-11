@@ -608,14 +608,15 @@ async function renderAdminUserDetail(ctx: any, targetUuid: string, page: number)
     if (user.telegramId) {
         buttons.push([Markup.button.callback(`✉️ Отправить сообщение`, `admin_dm_init:${user.telegramId}`)]);
     }
-    
+
     buttons.push([Markup.button.callback('🔙 Назад к списку', `admin_users_page:${page}`)]);
 
-    if (ctx.callbackQuery && ctx.callbackQuery.message?.text !== text) {
-        // Only edit if something changed or if it's a callback
-        try {
-            await ctx.editMessageText(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
-        } catch(e) {}
+    console.log(`[DEBUG] Rendering detail for user ${targetUuid}. Buttons count: ${buttons.length}`);
+    try {
+        await ctx.editMessageText(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+        console.log(`[DEBUG] editMessageText succeeded`);
+    } catch(e) {
+        console.error("[DEBUG] Error editing message text:", e);
     }
 }
 
