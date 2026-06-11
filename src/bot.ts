@@ -590,12 +590,11 @@ async function renderAdminUserDetail(ctx: any, targetUuid: string, page: number)
     if (user.status === 'DISABLED') expireStr = 'Остановлена';
 
     const usedTrafficGb = user.userTraffic?.usedTrafficBytes ? (user.userTraffic.usedTrafficBytes / 1073741824).toFixed(2) : '0.00';
-    const limitGb = user.trafficLimitBytes ? (user.trafficLimitBytes / 1073741824).toFixed(2) + ' ГБ' : 'Безлимит';
-    const lifetimeGb = user.userTraffic?.lifetimeUsedTrafficBytes ? (user.userTraffic.lifetimeUsedTrafficBytes / 1073741824).toFixed(2) : '0.00';
+    const limitGb = user.trafficLimitBytes ? (user.trafficLimitBytes / 1073741824).toFixed(2) + ' GiB' : '∞';
 
     const text = `👤 **Профиль пользователя:** ${escapeMarkdown(user.username)}\n` +
                  `⏳ **Статус:** ${statusEmoji} ${expireStr}\n` +
-                 `📊 **Трафик:** ${usedTrafficGb} ГБ / ${limitGb} (Всего: ${lifetimeGb} ГБ)\n` +
+                 `📈 **Использовано трафика:** ${usedTrafficGb} GiB из ${limitGb}\n` +
                  `🆔 **Telegram ID:** ${user.telegramId || 'Не привязан'}` + tgUsernameStr;
 
     const buttons = [];
