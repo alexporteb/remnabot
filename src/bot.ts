@@ -27,7 +27,13 @@ const unauthorizedMessage = "Команда не распознана.";
 const adminBroadcastState = new Map<number, boolean>();
 const adminDmState = new Map<number, number>(); // adminTelegramId -> targetTelegramId
 const adminConfigState = new Map<number, 'DAY' | 'TIME' | 'MSG'>(); // Setting states
-const adminAddUserState = new Map<number, boolean>();
+
+interface AddUserState {
+    step: 'USERNAME' | 'DURATION' | 'TELEGRAM';
+    username?: string;
+    days?: number;
+}
+const adminAddUserState = new Map<number, AddUserState>();
 
 function isAdmin(telegramId: number): boolean {
     const adminIdsStr = process.env.ADMIN_TELEGRAM_IDS || '';
@@ -376,7 +382,7 @@ bot.action('action_back', async (ctx) => {
         adminBroadcastState.set(telegramId, false);
         adminDmState.delete(telegramId);
         adminConfigState.delete(telegramId);
-        adminAddUserState.set(telegramId, false);
+        adminAddUserState.delete(telegramId);
     }
 
     try {
@@ -400,7 +406,7 @@ async function renderAdminMainMenu(ctx: any) {
     adminBroadcastState.set(telegramId, false);
     adminDmState.delete(telegramId);
     adminConfigState.delete(telegramId);
-    adminAddUserState.set(telegramId, false);
+    adminAddUserState.delete(telegramId);
 
     const text = `👑 **Панель Администратора**\n\nВыберите нужное действие:`;
     const keyboard = Markup.inlineKeyboard([
@@ -446,7 +452,8 @@ bot.action('admin_broadcast_cancel', async (ctx) => {
 
     adminBroadcastState.set(telegramId, false);
     adminDmState.delete(telegramId);
-    await ctx.answerCbQuery("Рассылка/сообщение отменено.");
+    adminAddUserState.delete(telegramId);
+    await ctx.answerCbQuery("Действие отменено.");
     await renderAdminMainMenu(ctx);
 });
 
@@ -626,7 +633,7 @@ bot.action(/admin_dm_init:(.+)/, async (ctx) => {
     adminDmState.set(telegramId, targetTelegramId);
     adminBroadcastState.set(telegramId, false);
     adminConfigState.delete(telegramId);
-    adminAddUserState.set(telegramId, false);
+    adminAddUserState.delete(telegramId);
 
     let targetName = 'Неизвестный';
     try {
@@ -648,22 +655,68 @@ bot.action('admin_add_user_init', async (ctx) => {
     const telegramId = ctx.from?.id;
     if (!telegramId || !isAdmin(telegramId)) return;
 
-    adminAddUserState.set(telegramId, true);
+    adminAddUserState.set(telegramId, { step: 'USERNAME' });
     adminBroadcastState.set(telegramId, false);
     adminConfigState.delete(telegramId);
     adminDmState.delete(telegramId);
 
-    const text = `➕ **Добавление нового пользователя**\n\n` +
-                 `Введите имя пользователя (на английском). Пользователь будет создан сразу на **30 дней**.\n\n` +
-                 `Если вы хотите сразу привязать Telegram ID, напишите его через пробел.\n` +
-                 `Пример 1: \`Ivan_Ivanov\`\n` +
-                 `Пример 2: \`Ivan_Ivanov 123456789\``;
+    const text = `➕ **Добавление нового пользователя (Шаг 1 из 3)**\n\n` +
+                 `Отправьте логин нового пользователя.\n\n` +
+                 `_Разрешены только английские буквы, цифры, дефисы и подчеркивания (от 3 до 36 символов)._`;
     
     const keyboard = Markup.inlineKeyboard([
-        [Markup.button.callback('🔙 Назад в админ-меню', 'action_admin_main')]
+        [Markup.button.callback('❌ Отмена', 'admin_broadcast_cancel')]
     ]);
 
     await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+    await ctx.answerCbQuery();
+});
+
+bot.action(/admin_add_user_duration:(\d+)/, async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId || !isAdmin(telegramId)) return;
+
+    const addUserState = adminAddUserState.get(telegramId);
+    if (!addUserState || addUserState.step !== 'DURATION') return;
+
+    addUserState.days = parseInt(ctx.match[1], 10);
+    addUserState.step = 'TELEGRAM';
+
+    const text = `⏳ **Шаг 3 из 3**\nСрок подписки выбран: **${addUserState.days} дней**.\n\nХотите привязать пользователя к Telegram?\nОтправьте его Telegram ID сообщением (или перешлите сообщение от него), либо нажмите кнопку "Пропустить".`;
+    const keyboard = Markup.inlineKeyboard([
+        [Markup.button.callback('⏭ Пропустить привязку', 'admin_add_user_skip_tg')],
+        [Markup.button.callback('❌ Отмена', 'admin_broadcast_cancel')]
+    ]);
+
+    await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+    await ctx.answerCbQuery();
+});
+
+async function finalizeCreateUser(ctx: any, adminTelegramId: number, state: AddUserState, targetTelegramId?: number) {
+    try {
+        let msg = await ctx.reply(`⏳ Создаю пользователя ${escapeMarkdown(state.username!)}...`);
+        await createUser(state.username!, state.days!, targetTelegramId);
+        adminAddUserState.delete(adminTelegramId);
+
+        const keyboard = Markup.inlineKeyboard([
+            [Markup.button.callback('👥 Перейти к списку пользователей', 'admin_users_page:0')],
+            [Markup.button.callback('🔙 Назад в админ-меню', 'action_admin_main')]
+        ]);
+        await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `✅ Пользователь **${escapeMarkdown(state.username!)}** успешно создан!\nВыдана подписка на ${state.days} дней.`, { parse_mode: 'Markdown', ...keyboard });
+    } catch (err: any) {
+        await ctx.reply(`❌ Ошибка при создании пользователя. Возможно, логин уже занят или произошел сбой.`);
+        adminAddUserState.delete(adminTelegramId);
+    }
+}
+
+bot.action('admin_add_user_skip_tg', async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId || !isAdmin(telegramId)) return;
+
+    const addUserState = adminAddUserState.get(telegramId);
+    if (!addUserState || addUserState.step !== 'TELEGRAM') return;
+
+    await finalizeCreateUser(ctx, telegramId, addUserState, undefined);
     await ctx.answerCbQuery();
 });
 
@@ -797,44 +850,48 @@ bot.on('message', async (ctx) => {
     }
 
     // Check if admin is adding a new user
-    if (isAdmin(telegramId) && adminAddUserState.get(telegramId)) {
-        const text = 'text' in ctx.message ? ctx.message.text : '';
-        if (!text) {
-            await ctx.reply("Пожалуйста, отправьте текст (имя пользователя).");
-            return;
-        }
-
-        const parts = text.trim().split(/\s+/);
-        const username = parts[0];
-        let targetTelegramId: number | undefined = undefined;
-
-        if (parts.length > 1) {
-            const parsed = parseInt(parts[1], 10);
-            if (!isNaN(parsed)) {
-                targetTelegramId = parsed;
+    const addUserState = adminAddUserState.get(telegramId);
+    if (isAdmin(telegramId) && addUserState) {
+        if (addUserState.step === 'USERNAME') {
+            const username = 'text' in ctx.message ? ctx.message.text.trim() : '';
+            if (!/^[a-zA-Z0-9_-]{3,36}$/.test(username)) {
+                await ctx.reply("❌ Недопустимое имя пользователя. Разрешены только английские буквы, цифры, дефисы и подчеркивания (от 3 до 36 символов).");
+                return;
             }
-        }
+            addUserState.username = username;
+            addUserState.step = 'DURATION';
+            
+            const keyboard = Markup.inlineKeyboard([
+                [Markup.button.callback('1 месяц', 'admin_add_user_duration:30'), Markup.button.callback('3 месяца', 'admin_add_user_duration:90')],
+                [Markup.button.callback('На год', 'admin_add_user_duration:365'), Markup.button.callback('Безлимит', 'admin_add_user_duration:36500')],
+                [Markup.button.callback('❌ Отмена', 'admin_broadcast_cancel')]
+            ]);
+            await ctx.reply(`👤 Логин **${escapeMarkdown(username)}** принят.\n\n**Шаг 2 из 3:** На какой срок создать подписку?`, { parse_mode: 'Markdown', ...keyboard });
+            return;
+        } else if (addUserState.step === 'TELEGRAM') {
+            let targetTelegramId: number | undefined = undefined;
 
-        // Basic username validation (3-36 chars, alphanumeric/dash/underscore)
-        if (!/^[a-zA-Z0-9_-]{3,36}$/.test(username)) {
-            await ctx.reply("❌ Недопустимое имя пользователя. Разрешены только английские буквы, цифры, дефисы и подчеркивания (от 3 до 36 символов).");
+            const msgAny = ctx.message as any;
+            // Check if it's a forwarded message
+            if (msgAny.forward_from && msgAny.forward_from.id) {
+                targetTelegramId = msgAny.forward_from.id;
+            } else if (msgAny.forward_origin && msgAny.forward_origin.type === 'user') {
+                targetTelegramId = msgAny.forward_origin.sender_user?.id;
+            } else {
+                const text = 'text' in ctx.message ? ctx.message.text.trim() : '';
+                targetTelegramId = parseInt(text, 10);
+            }
+
+            if (!targetTelegramId || isNaN(targetTelegramId)) {
+                await ctx.reply("❌ Не удалось определить Telegram ID. Пожалуйста, перешлите сообщение от пользователя, отправьте только число (его ID), либо нажмите кнопку 'Пропустить привязку'.",
+                    Markup.inlineKeyboard([[Markup.button.callback('⏭ Пропустить привязку', 'admin_add_user_skip_tg')]])
+                );
+                return;
+            }
+
+            await finalizeCreateUser(ctx, telegramId, addUserState, targetTelegramId);
             return;
         }
-
-        try {
-            await ctx.reply(`⏳ Создаю пользователя ${escapeMarkdown(username)}...`);
-            await createUser(username, 30, targetTelegramId);
-            adminAddUserState.set(telegramId, false);
-
-            const keyboard = Markup.inlineKeyboard([
-                [Markup.button.callback('👥 Перейти к списку пользователей', 'admin_users_page:0')],
-                [Markup.button.callback('🔙 Назад в админ-меню', 'action_admin_main')]
-            ]);
-            await ctx.reply(`✅ Пользователь **${escapeMarkdown(username)}** успешно создан!\nВыдана подписка на 30 дней.`, { parse_mode: 'Markdown', ...keyboard });
-        } catch (err: any) {
-            await ctx.reply(`❌ Ошибка при создании пользователя. Возможно, имя уже занято.`);
-        }
-        return;
     }
 
     const text = 'text' in ctx.message ? ctx.message.text : 'non-text message';
