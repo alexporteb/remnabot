@@ -24,6 +24,7 @@ const unauthorizedMessage = "Команда не распознана.";
 
 // Admin states
 const adminBroadcastState = new Map<number, boolean>();
+const adminDmState = new Map<number, number>(); // adminTelegramId -> targetTelegramId
 
 function isAdmin(telegramId: number): boolean {
     const adminIdsStr = process.env.ADMIN_TELEGRAM_IDS || '';
@@ -49,13 +50,20 @@ bot.start(async (ctx) => {
 });
 
 async function sendMainMenu(ctx: any, username: string) {
+    const telegramId = ctx.from?.id;
     const safeUsername = escapeMarkdown(username);
     const message = `👋 Добро пожаловать, **${safeUsername}**!\n\nВыберите нужное действие из меню ниже:`;
     
-    const keyboard = Markup.inlineKeyboard([
+    const buttons = [
         [Markup.button.callback('📊 Мой профиль', 'action_profile')],
-        [Markup.button.callback('🔗 Моя подписка', 'action_subscription')],
-    ]);
+        [Markup.button.callback('🔗 Моя подписка', 'action_subscription')]
+    ];
+
+    if (telegramId && isAdmin(telegramId)) {
+        buttons.push([Markup.button.callback('👑 Админ-панель', 'action_admin_main')]);
+    }
+
+    const keyboard = Markup.inlineKeyboard(buttons);
 
     if (ctx.callbackQuery) {
         await ctx.editMessageText(message, { parse_mode: 'Markdown', ...keyboard });
@@ -375,11 +383,12 @@ bot.action('action_back', async (ctx) => {
 });
 
 // --- ADMIN PANEL ---
-bot.command('admin', async (ctx) => {
-    const telegramId = ctx.from.id;
-    if (!isAdmin(telegramId)) return;
+async function renderAdminMainMenu(ctx: any) {
+    const telegramId = ctx.from?.id;
+    if (!telegramId || !isAdmin(telegramId)) return;
 
-    adminBroadcastState.set(telegramId, false); // clear any pending broadcast state
+    adminBroadcastState.set(telegramId, false);
+    adminDmState.delete(telegramId);
 
     const text = `👑 **Панель Администратора**\n\nВыберите нужное действие:`;
     const keyboard = Markup.inlineKeyboard([
@@ -387,7 +396,17 @@ bot.command('admin', async (ctx) => {
         [Markup.button.callback('📢 Отправить рассылку всем', 'admin_broadcast_init')]
     ]);
 
-    await ctx.reply(text, { parse_mode: 'Markdown', ...keyboard });
+    if (ctx.callbackQuery) {
+        await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+    } else {
+        await ctx.reply(text, { parse_mode: 'Markdown', ...keyboard });
+    }
+}
+
+bot.command('admin', renderAdminMainMenu);
+bot.action('action_admin_main', async (ctx) => {
+    await renderAdminMainMenu(ctx);
+    await ctx.answerCbQuery();
 });
 
 bot.action('admin_broadcast_init', async (ctx) => {
@@ -398,6 +417,7 @@ bot.action('admin_broadcast_init', async (ctx) => {
 
     const text = `📢 **Ручная рассылка**\n\nОтправьте мне сообщение (текст, картинку или кружок), и я разошлю его всем пользователям бота.\n\nДля отмены нажмите кнопку ниже.`;
     const keyboard = Markup.inlineKeyboard([
+        [Markup.button.callback('🔙 Назад в админ-меню', 'action_admin_main')],
         [Markup.button.callback('❌ Отмена', 'admin_broadcast_cancel')]
     ]);
 
@@ -451,13 +471,26 @@ async function renderAdminUsersPage(ctx: any, page: number) {
         const isExpired = u.status === 'EXPIRED';
         const statusEmoji = isExpired ? '🔴' : '🟢';
         let expireStr = isExpired ? 'Истекла' : `${u.daysLeft} дн.`;
-        if (u.daysLeft === null || u.daysLeft === undefined || u.daysLeft > 3650) expireStr = '∞';
+        const isUnlimited = u.daysLeft === null || u.daysLeft === undefined || u.daysLeft > 3650;
+        if (isUnlimited) expireStr = '∞';
 
         const safeUsername = escapeMarkdown(u.username);
         text += `${startIdx + i + 1}. ${statusEmoji} **${safeUsername}** - ${expireStr}\n`;
         
-        // Button for each user
-        buttons.push([Markup.button.callback(`💰 Продлить ${u.username} (+30 дн.)`, `admin_extend:${u.uuid}:${page}`)]);
+        const userButtons = [];
+        // Show extend button only if not unlimited
+        if (!isUnlimited) {
+            userButtons.push(Markup.button.callback(`💰 Продлить ${u.username}`, `admin_extend:${u.uuid}:${page}`));
+        }
+        
+        // Show message button if user has telegramId
+        if (u.telegramId) {
+            userButtons.push(Markup.button.callback(`✉️ Написать`, `admin_dm_init:${u.telegramId}`));
+        }
+
+        if (userButtons.length > 0) {
+            buttons.push(userButtons);
+        }
     });
 
     // Pagination buttons
@@ -465,6 +498,9 @@ async function renderAdminUsersPage(ctx: any, page: number) {
     if (page > 0) navRow.push(Markup.button.callback('⬅️ Пред.', `admin_users_page:${page - 1}`));
     if (page < totalPages - 1) navRow.push(Markup.button.callback('След. ➡️', `admin_users_page:${page + 1}`));
     if (navRow.length > 0) buttons.push(navRow);
+
+    // Back to admin menu
+    buttons.push([Markup.button.callback('🔙 Назад в админ-меню', 'action_admin_main')]);
 
     if (ctx.callbackQuery) {
         await ctx.editMessageText(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
@@ -504,6 +540,24 @@ bot.action(/admin_extend:(.+):(\d+)/, async (ctx) => {
     }
 });
 
+bot.action(/admin_dm_init:(.+)/, async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId || !isAdmin(telegramId)) return;
+
+    const targetTelegramId = parseInt(ctx.match[1], 10);
+    adminDmState.set(telegramId, targetTelegramId);
+    adminBroadcastState.set(telegramId, false);
+
+    const text = `✉️ **Написать пользователю**\n\nОтправьте мне сообщение, и я перешлю его этому пользователю.\n\nДля отмены нажмите кнопку ниже.`;
+    const keyboard = Markup.inlineKeyboard([
+        [Markup.button.callback('🔙 Назад в админ-меню', 'action_admin_main')],
+        [Markup.button.callback('❌ Отмена', 'admin_broadcast_cancel')]
+    ]);
+
+    await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+    await ctx.answerCbQuery();
+});
+
 // Any other messages
 bot.on('message', async (ctx) => {
     const telegramId = ctx.from?.id;
@@ -534,6 +588,21 @@ bot.on('message', async (ctx) => {
         }
 
         await ctx.reply(`✅ Рассылка завершена!\nУспешно: ${success}\nОшибок: ${fail}`);
+        return;
+    }
+
+    // Check if admin is sending DM
+    const targetTelegramId = adminDmState.get(telegramId);
+    if (isAdmin(telegramId) && targetTelegramId) {
+        adminDmState.delete(telegramId); // reset state
+
+        const message = ctx.message;
+        try {
+            await ctx.telegram.copyMessage(targetTelegramId, ctx.chat.id, message.message_id);
+            await ctx.reply(`✅ Сообщение успешно отправлено пользователю!`);
+        } catch (err) {
+            await ctx.reply(`❌ Ошибка отправки сообщения. Возможно, пользователь заблокировал бота.`);
+        }
         return;
     }
 
