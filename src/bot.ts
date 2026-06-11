@@ -436,25 +436,13 @@ bot.action('admin_broadcast_init', async (ctx) => {
 
     adminBroadcastState.set(telegramId, true);
 
-    const text = `📢 **Ручная рассылка**\n\nОтправьте мне сообщение (текст, картинку или кружок), и я разошлю его всем пользователям бота.\n\nДля отмены нажмите кнопку ниже.`;
+    const text = `📢 **Ручная рассылка**\n\nОтправьте мне сообщение (текст, картинку или кружок), и я разошлю его всем пользователям бота.`;
     const keyboard = Markup.inlineKeyboard([
-        [Markup.button.callback('🔙 Назад в админ-меню', 'action_admin_main')],
-        [Markup.button.callback('❌ Отмена', 'admin_broadcast_cancel')]
+        [Markup.button.callback('🔙 Назад в админ-меню', 'action_admin_main')]
     ]);
 
     await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
     await ctx.answerCbQuery();
-});
-
-bot.action('admin_broadcast_cancel', async (ctx) => {
-    const telegramId = ctx.from?.id;
-    if (!telegramId || !isAdmin(telegramId)) return;
-
-    adminBroadcastState.set(telegramId, false);
-    adminDmState.delete(telegramId);
-    adminAddUserState.delete(telegramId);
-    await ctx.answerCbQuery("Действие отменено.");
-    await renderAdminMainMenu(ctx);
 });
 
 async function renderAdminUsersPage(ctx: any, page: number) {
@@ -553,14 +541,14 @@ bot.action(/admin_user_detail:(.+):(\d+)/, async (ctx) => {
         return ctx.answerCbQuery("Пользователь не найден", { show_alert: true });
     }
 
-    let tgUsernameStr = 'Нет данных';
+    let tgUsernameStr = '';
     if (user.telegramId) {
         try {
             const chat = await ctx.telegram.getChat(user.telegramId);
             if ('username' in chat && chat.username) {
-                tgUsernameStr = `@${escapeMarkdown(chat.username)}`;
+                tgUsernameStr = `\n💬 **Telegram:** @${escapeMarkdown(chat.username)}`;
             } else if ('first_name' in chat) {
-                tgUsernameStr = escapeMarkdown(chat.first_name);
+                tgUsernameStr = `\n💬 **Telegram:** ${escapeMarkdown(chat.first_name)}`;
             }
         } catch (e) {}
     }
@@ -589,8 +577,7 @@ bot.action(/admin_user_detail:(.+):(\d+)/, async (ctx) => {
 
     const text = `👤 **Профиль пользователя:** ${escapeMarkdown(user.username)}\n` +
                  `⏳ **Статус:** ${statusEmoji} ${expireStr}\n` +
-                 `🆔 **Telegram ID:** ${user.telegramId || 'Не привязан'}\n` +
-                 `💬 **Telegram Username:** ${tgUsernameStr}`;
+                 `🆔 **Telegram ID:** ${user.telegramId || 'Не привязан'}` + tgUsernameStr;
 
     const buttons = [];
     
@@ -641,10 +628,9 @@ bot.action(/admin_dm_init:(.+)/, async (ctx) => {
         if (targetUser) targetName = escapeMarkdown(targetUser.username);
     } catch(e) {}
 
-    const text = `✉️ **Вы пишете сообщение пользователю:** **${targetName}**\n\nОтправьте мне сообщение (текст, картинку или кружок), и я перешлю его.\n\nДля отмены нажмите кнопку ниже.`;
+    const text = `✉️ **Вы пишете сообщение пользователю:** **${targetName}**\n\nОтправьте мне сообщение (текст, картинку или кружок), и я перешлю его.`;
     const keyboard = Markup.inlineKeyboard([
-        [Markup.button.callback('🔙 Назад в админ-меню', 'action_admin_main')],
-        [Markup.button.callback('❌ Отмена', 'admin_broadcast_cancel')]
+        [Markup.button.callback('🔙 Назад в админ-меню', 'action_admin_main')]
     ]);
 
     await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
@@ -665,7 +651,7 @@ bot.action('admin_add_user_init', async (ctx) => {
                  `_Разрешены только английские буквы, цифры, дефисы и подчеркивания (от 3 до 36 символов)._`;
     
     const keyboard = Markup.inlineKeyboard([
-        [Markup.button.callback('❌ Отмена', 'admin_broadcast_cancel')]
+        [Markup.button.callback('🔙 Назад в админ-меню', 'action_admin_main')]
     ]);
 
     await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
@@ -685,7 +671,7 @@ bot.action(/admin_add_user_duration:(\d+)/, async (ctx) => {
     const text = `⏳ **Шаг 3 из 3**\nСрок подписки выбран: **${addUserState.days} дней**.\n\nХотите привязать пользователя к Telegram?\nОтправьте его Telegram ID сообщением (или перешлите сообщение от него), либо нажмите кнопку "Пропустить".`;
     const keyboard = Markup.inlineKeyboard([
         [Markup.button.callback('⏭ Пропустить привязку', 'admin_add_user_skip_tg')],
-        [Markup.button.callback('❌ Отмена', 'admin_broadcast_cancel')]
+        [Markup.button.callback('🔙 Назад в админ-меню', 'action_admin_main')]
     ]);
 
     await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
@@ -864,7 +850,7 @@ bot.on('message', async (ctx) => {
             const keyboard = Markup.inlineKeyboard([
                 [Markup.button.callback('1 месяц', 'admin_add_user_duration:30'), Markup.button.callback('3 месяца', 'admin_add_user_duration:90')],
                 [Markup.button.callback('На год', 'admin_add_user_duration:365'), Markup.button.callback('Безлимит', 'admin_add_user_duration:36500')],
-                [Markup.button.callback('❌ Отмена', 'admin_broadcast_cancel')]
+                [Markup.button.callback('🔙 Назад в админ-меню', 'action_admin_main')]
             ]);
             await ctx.reply(`👤 Логин **${escapeMarkdown(username)}** принят.\n\n**Шаг 2 из 3:** На какой срок создать подписку?`, { parse_mode: 'Markdown', ...keyboard });
             return;
