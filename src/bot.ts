@@ -2,7 +2,7 @@ import { Telegraf, Markup } from 'telegraf';
 import dotenv from 'dotenv';
 import { startCronJobs, reloadCronJobs } from './cron';
 import { loadConfig, saveConfig } from './config';
-import { getUserByTelegramId, getSubscriptionInfo, deleteAllHwidDevices, getUserHwidDevices, deleteHwidDevice, getSubscriptionSettings, revokeUserSubscription, getAllUsers, extendUserSubscription } from './api';
+import { getUserByTelegramId, getSubscriptionInfo, deleteAllHwidDevices, getUserHwidDevices, deleteHwidDevice, getSubscriptionSettings, revokeUserSubscription, getAllUsers, extendUserSubscription, createUser } from './api';
 
 dotenv.config();
 
@@ -27,6 +27,7 @@ const unauthorizedMessage = "Команда не распознана.";
 const adminBroadcastState = new Map<number, boolean>();
 const adminDmState = new Map<number, number>(); // adminTelegramId -> targetTelegramId
 const adminConfigState = new Map<number, 'DAY' | 'TIME' | 'MSG'>(); // Setting states
+const adminAddUserState = new Map<number, boolean>();
 
 function isAdmin(telegramId: number): boolean {
     const adminIdsStr = process.env.ADMIN_TELEGRAM_IDS || '';
@@ -371,6 +372,13 @@ bot.action('action_back', async (ctx) => {
     const telegramId = ctx.from?.id;
     if (!telegramId) return;
 
+    if (isAdmin(telegramId)) {
+        adminBroadcastState.set(telegramId, false);
+        adminDmState.delete(telegramId);
+        adminConfigState.delete(telegramId);
+        adminAddUserState.set(telegramId, false);
+    }
+
     try {
         const user = await getUserByTelegramId(telegramId);
         if (!user) {
@@ -392,12 +400,15 @@ async function renderAdminMainMenu(ctx: any) {
     adminBroadcastState.set(telegramId, false);
     adminDmState.delete(telegramId);
     adminConfigState.delete(telegramId);
+    adminAddUserState.set(telegramId, false);
 
     const text = `👑 **Панель Администратора**\n\nВыберите нужное действие:`;
     const keyboard = Markup.inlineKeyboard([
         [Markup.button.callback('👥 Общий список пользователей', 'admin_users_page:0')],
+        [Markup.button.callback('➕ Создать пользователя', 'admin_add_user_init')],
         [Markup.button.callback('📢 Отправить рассылку всем', 'admin_broadcast_init')],
-        [Markup.button.callback('⚙️ Настройка авто-оплаты', 'admin_config_menu')]
+        [Markup.button.callback('⚙️ Настройка авто-оплаты', 'admin_config_menu')],
+        [Markup.button.callback('🔙 Выйти к боту', 'action_back')]
     ]);
 
     if (ctx.callbackQuery) {
@@ -476,7 +487,8 @@ async function renderAdminUsersPage(ctx: any, page: number) {
 
     pageUsers.forEach((u) => {
         const isExpired = u.status === 'EXPIRED';
-        const statusEmoji = isExpired ? '🔴' : '🟢';
+        const isRed = isExpired || (u.daysLeft !== null && u.daysLeft !== undefined && u.daysLeft < 30);
+        const statusEmoji = isRed ? '🔴' : '🟢';
         
         currentRow.push(Markup.button.callback(`${statusEmoji} ${u.username}`, `admin_user_detail:${u.uuid}:${page}`));
         if (currentRow.length === 2) {
@@ -546,13 +558,13 @@ bot.action(/admin_user_detail:(.+):(\d+)/, async (ctx) => {
     }
 
     const isExpired = user.status === 'EXPIRED';
-    const statusEmoji = isExpired ? '🔴' : '🟢';
     let expireStr = isExpired ? 'Истекла' : 'Активна';
     let isUnlimited = false;
+    let daysLeft = 0;
     
     if (user.expireAt) {
         const diff = new Date(user.expireAt).getTime() - Date.now();
-        const daysLeft = Math.ceil(diff / (1000 * 60 * 60 * 24));
+        daysLeft = Math.ceil(diff / (1000 * 60 * 60 * 24));
         if (daysLeft > 3650) {
             isUnlimited = true;
             expireStr = '∞ (Безлимит)';
@@ -563,6 +575,9 @@ bot.action(/admin_user_detail:(.+):(\d+)/, async (ctx) => {
         isUnlimited = true;
         expireStr = '∞ (Безлимит)';
     }
+
+    const isRed = isExpired || (!isUnlimited && daysLeft < 30);
+    const statusEmoji = isRed ? '🔴' : '🟢';
 
     const text = `👤 **Профиль пользователя:** ${escapeMarkdown(user.username)}\n` +
                  `⏳ **Статус:** ${statusEmoji} ${expireStr}\n` +
@@ -610,6 +625,7 @@ bot.action(/admin_dm_init:(.+)/, async (ctx) => {
     adminDmState.set(telegramId, targetTelegramId);
     adminBroadcastState.set(telegramId, false);
     adminConfigState.delete(telegramId);
+    adminAddUserState.set(telegramId, false);
 
     let targetName = 'Неизвестный';
     try {
@@ -621,6 +637,29 @@ bot.action(/admin_dm_init:(.+)/, async (ctx) => {
     const keyboard = Markup.inlineKeyboard([
         [Markup.button.callback('🔙 Назад в админ-меню', 'action_admin_main')],
         [Markup.button.callback('❌ Отмена', 'admin_broadcast_cancel')]
+    ]);
+
+    await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+    await ctx.answerCbQuery();
+});
+
+bot.action('admin_add_user_init', async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId || !isAdmin(telegramId)) return;
+
+    adminAddUserState.set(telegramId, true);
+    adminBroadcastState.set(telegramId, false);
+    adminConfigState.delete(telegramId);
+    adminDmState.delete(telegramId);
+
+    const text = `➕ **Добавление нового пользователя**\n\n` +
+                 `Введите имя пользователя (на английском). Пользователь будет создан сразу на **30 дней**.\n\n` +
+                 `Если вы хотите сразу привязать Telegram ID, напишите его через пробел.\n` +
+                 `Пример 1: \`Ivan_Ivanov\`\n` +
+                 `Пример 2: \`Ivan_Ivanov 123456789\``;
+    
+    const keyboard = Markup.inlineKeyboard([
+        [Markup.button.callback('🔙 Назад в админ-меню', 'action_admin_main')]
     ]);
 
     await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
@@ -753,6 +792,47 @@ bot.on('message', async (ctx) => {
 
         const keyboard = Markup.inlineKeyboard([[Markup.button.callback('🔙 Вернуться к настройкам', 'admin_config_menu')]]);
         await ctx.reply("✅ Настройки успешно сохранены и авто-рассылка перезапущена!", { ...keyboard });
+        return;
+    }
+
+    // Check if admin is adding a new user
+    if (isAdmin(telegramId) && adminAddUserState.get(telegramId)) {
+        const text = 'text' in ctx.message ? ctx.message.text : '';
+        if (!text) {
+            await ctx.reply("Пожалуйста, отправьте текст (имя пользователя).");
+            return;
+        }
+
+        const parts = text.trim().split(/\s+/);
+        const username = parts[0];
+        let targetTelegramId: number | undefined = undefined;
+
+        if (parts.length > 1) {
+            const parsed = parseInt(parts[1], 10);
+            if (!isNaN(parsed)) {
+                targetTelegramId = parsed;
+            }
+        }
+
+        // Basic username validation (3-36 chars, alphanumeric/dash/underscore)
+        if (!/^[a-zA-Z0-9_-]{3,36}$/.test(username)) {
+            await ctx.reply("❌ Недопустимое имя пользователя. Разрешены только английские буквы, цифры, дефисы и подчеркивания (от 3 до 36 символов).");
+            return;
+        }
+
+        try {
+            await ctx.reply(`⏳ Создаю пользователя ${escapeMarkdown(username)}...`);
+            await createUser(username, 30, targetTelegramId);
+            adminAddUserState.set(telegramId, false);
+
+            const keyboard = Markup.inlineKeyboard([
+                [Markup.button.callback('👥 Перейти к списку пользователей', 'admin_users_page:0')],
+                [Markup.button.callback('🔙 Назад в админ-меню', 'action_admin_main')]
+            ]);
+            await ctx.reply(`✅ Пользователь **${escapeMarkdown(username)}** успешно создан!\nВыдана подписка на 30 дней.`, { parse_mode: 'Markdown', ...keyboard });
+        } catch (err: any) {
+            await ctx.reply(`❌ Ошибка при создании пользователя. Возможно, имя уже занято.`);
+        }
         return;
     }
 

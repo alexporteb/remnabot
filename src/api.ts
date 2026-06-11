@@ -198,3 +198,16 @@ export async function extendUserSubscription(userUuid: string, days: number): Pr
         throw error;
     }
 }
+  
+export async function createUser(username: string, days: number, telegramId?: number): Promise<void> {
+    try {
+        const expireAtDate = new Date();
+        expireAtDate.setDate(expireAtDate.getDate() + days);
+        const payload: any = { username, expireAt: expireAtDate.toISOString(), status: 'ACTIVE' };
+        if (telegramId) payload.telegramId = telegramId;
+        await apiClient.post(`/api/users`, payload);
+    } catch (error) {
+        console.error(`Error creating user ${username}:`, error instanceof AxiosError ? error.message : error);
+        throw error;
+    }
+} 
