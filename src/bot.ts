@@ -604,6 +604,7 @@ bot.action(/admin_extend:(.+):(\d+)/, async (ctx) => {
 
     try {
         await extendUserSubscription(targetUuid, 30);
+        console.log(`[ADMIN] Telegram ID ${telegramId} extended subscription for user UUID ${targetUuid} by 30 days.`);
         await ctx.answerCbQuery("✅ Подписка продлена на 30 дней!", { show_alert: true });
         await renderAdminUsersPage(ctx, page);
     } catch (e) {
@@ -682,6 +683,7 @@ async function finalizeCreateUser(ctx: any, adminTelegramId: number, state: AddU
     try {
         let msg = await ctx.reply(`⏳ Создаю пользователя ${escapeMarkdown(state.username!)}...`);
         await createUser(state.username!, state.days!, targetTelegramId);
+        console.log(`[ADMIN] Telegram ID ${adminTelegramId} created user ${state.username} for ${state.days} days.`);
         adminAddUserState.delete(adminTelegramId);
 
         const keyboard = Markup.inlineKeyboard([
@@ -779,6 +781,7 @@ bot.on('message', async (ctx) => {
             await new Promise(r => setTimeout(r, 1000));
         }
 
+        console.log(`[ADMIN] Telegram ID ${telegramId} sent broadcast. Success: ${success}, Fail: ${fail}`);
         await ctx.reply(`✅ Рассылка завершена!\nУспешно: ${success}\nОшибок: ${fail}`);
         return;
     }
@@ -791,6 +794,7 @@ bot.on('message', async (ctx) => {
         const message = ctx.message;
         try {
             await ctx.telegram.copyMessage(targetTelegramId, ctx.chat.id, message.message_id);
+            console.log(`[ADMIN] Telegram ID ${telegramId} sent DM to Telegram ID ${targetTelegramId}.`);
             await ctx.reply(`✅ Сообщение успешно отправлено пользователю!`);
         } catch (err) {
             await ctx.reply(`❌ Ошибка отправки сообщения. Возможно, пользователь заблокировал бота.`);
@@ -827,6 +831,7 @@ bot.on('message', async (ctx) => {
         }
 
         saveConfig(config);
+        console.log(`[ADMIN] Telegram ID ${telegramId} updated config: Day ${config.paymentNotificationDay}, Time ${config.paymentNotificationTime}, Msg "${config.paymentNotificationMessage.substring(0, 20)}..."`);
         reloadCronJobs(bot);
         adminConfigState.delete(telegramId);
 
