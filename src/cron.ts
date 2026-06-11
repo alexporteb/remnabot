@@ -1,62 +1,72 @@
 import cron from 'node-cron';
 import { Telegraf } from 'telegraf';
 import { getAllUsers } from './api';
+import { loadConfig } from './config';
 
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+let currentTask: any = null;
 
 export function startCronJobs(bot: Telegraf) {
-    const paymentDayStr = process.env.PAYMENT_NOTIFICATION_DAY || '0';
-    const paymentTimeStr = process.env.PAYMENT_NOTIFICATION_TIME || '10:00';
-    const paymentMessage = process.env.PAYMENT_NOTIFICATION_MESSAGE || 'Пожалуйста, оплатите подписку на VPN, иначе доступ будет приостановлен.';
-    
-    const paymentDay = parseInt(paymentDayStr, 10);
-    
-    // Only schedule if payment notification is enabled (day > 0 and <= 31)
-    if (isNaN(paymentDay) || paymentDay <= 0 || paymentDay > 31) {
-        console.log('[CRON] Payment notification is disabled (PAYMENT_NOTIFICATION_DAY is 0 or invalid).');
+    reloadCronJobs(bot);
+}
+
+export function reloadCronJobs(bot: Telegraf) {
+    if (currentTask) {
+        currentTask.stop();
+        currentTask = null;
+    }
+
+    const config = loadConfig();
+    const dayStr = config.paymentNotificationDay;
+    const day = typeof dayStr === 'string' ? parseInt(dayStr, 10) : dayStr;
+    const timeStr = config.paymentNotificationTime;
+    const msg = config.paymentNotificationMessage;
+
+    if (isNaN(day) || day <= 0 || day > 31 || !timeStr) {
+        console.log("[CRON] Payment notifications are disabled or misconfigured.");
         return;
     }
 
-    const timeParts = paymentTimeStr.split(':');
-    const hour = timeParts[0] ? parseInt(timeParts[0], 10) : 10;
-    const minute = timeParts[1] ? parseInt(timeParts[1], 10) : 0;
+    const parts = timeStr.split(':');
+    if (parts.length !== 2) {
+        console.log("[CRON] Invalid time format for PAYMENT_NOTIFICATION_TIME. Use HH:MM");
+        return;
+    }
 
-    // Cron expression: minute hour day-of-month * *
-    const cronExpression = `${minute} ${hour} ${paymentDay} * *`;
+    const hour = parseInt(parts[0], 10);
+    const minute = parseInt(parts[1], 10);
 
-    console.log(`[CRON] Scheduled payment notifications for day ${paymentDay} at ${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}.`);
+    if (isNaN(hour) || isNaN(minute)) {
+        console.log("[CRON] Invalid time format.");
+        return;
+    }
 
-    cron.schedule(cronExpression, async () => {
-        console.log('[CRON] Executing payment notification job...');
-        
+    const cronExpression = `${minute} ${hour} ${day} * *`;
+    console.log(`[CRON] Scheduled payment notifications for day ${day} at ${timeStr} MSK.`);
+
+    currentTask = cron.schedule(cronExpression, async () => {
+        console.log("[CRON] Executing payment notifications...");
         try {
             const users = await getAllUsers();
-            console.log(`[CRON] Fetched ${users.length} users from Remnawave.`);
-            
-            // Filter users who have a telegramId
-            const telegramUsers = users.filter(u => u.telegramId !== null && u.telegramId !== undefined);
-            console.log(`[CRON] Found ${telegramUsers.length} users with linked Telegram IDs.`);
-            
             let successCount = 0;
             let failCount = 0;
-
-            for (const user of telegramUsers) {
+            
+            for (const user of users) {
                 if (user.telegramId) {
                     try {
-                        await bot.telegram.sendMessage(user.telegramId, paymentMessage);
+                        await bot.telegram.sendMessage(user.telegramId, msg);
                         successCount++;
-                        console.log(`[CRON] Sent payment notification to user ${user.username} (ID: ${user.telegramId})`);
-                    } catch (err: any) {
+                    } catch (e) {
+                        console.error(`[CRON] Failed to send to ${user.telegramId}:`, e);
                         failCount++;
-                        console.error(`[CRON] Failed to send notification to user ${user.username} (ID: ${user.telegramId}):`, err.message);
                     }
-                    // Wait 1 second before sending the next message to prevent Telegram rate limiting (max 30 msgs/sec)
-                    await delay(1000);
+                    await new Promise(r => setTimeout(r, 1000));
                 }
             }
             console.log(`[CRON] Payment notification job finished. Success: ${successCount}, Failed: ${failCount}.`);
         } catch (error: any) {
             console.error('[CRON] Critical error during payment notification job:', error.message);
         }
+    }, {
+        timezone: 'Europe/Moscow'
     });
 }

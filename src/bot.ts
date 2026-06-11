@@ -1,6 +1,7 @@
 import { Telegraf, Markup } from 'telegraf';
 import dotenv from 'dotenv';
-import { startCronJobs } from './cron';
+import { startCronJobs, reloadCronJobs } from './cron';
+import { loadConfig, saveConfig } from './config';
 import { getUserByTelegramId, getSubscriptionInfo, deleteAllHwidDevices, getUserHwidDevices, deleteHwidDevice, getSubscriptionSettings, revokeUserSubscription, getAllUsers, extendUserSubscription } from './api';
 
 dotenv.config();
@@ -25,6 +26,7 @@ const unauthorizedMessage = "Команда не распознана.";
 // Admin states
 const adminBroadcastState = new Map<number, boolean>();
 const adminDmState = new Map<number, number>(); // adminTelegramId -> targetTelegramId
+const adminConfigState = new Map<number, 'DAY' | 'TIME' | 'MSG'>(); // Setting states
 
 function isAdmin(telegramId: number): boolean {
     const adminIdsStr = process.env.ADMIN_TELEGRAM_IDS || '';
@@ -389,11 +391,13 @@ async function renderAdminMainMenu(ctx: any) {
 
     adminBroadcastState.set(telegramId, false);
     adminDmState.delete(telegramId);
+    adminConfigState.delete(telegramId);
 
     const text = `👑 **Панель Администратора**\n\nВыберите нужное действие:`;
     const keyboard = Markup.inlineKeyboard([
         [Markup.button.callback('👥 Общий список пользователей', 'admin_users_page:0')],
-        [Markup.button.callback('📢 Отправить рассылку всем', 'admin_broadcast_init')]
+        [Markup.button.callback('📢 Отправить рассылку всем', 'admin_broadcast_init')],
+        [Markup.button.callback('⚙️ Настройка авто-оплаты', 'admin_config_menu')]
     ]);
 
     if (ctx.callbackQuery) {
@@ -435,8 +439,11 @@ bot.action('admin_broadcast_cancel', async (ctx) => {
 });
 
 async function renderAdminUsersPage(ctx: any, page: number) {
-    const users = await getAllUsers();
+    let users = await getAllUsers();
     
+    // Filter out users who do not have a telegramId (not using the bot)
+    users = users.filter(u => u.telegramId !== null && u.telegramId !== undefined);
+
     // Calculate daysLeft for sorting and display
     const usersWithDays = users.map(u => {
         let daysLeft = null;
@@ -547,11 +554,62 @@ bot.action(/admin_dm_init:(.+)/, async (ctx) => {
     const targetTelegramId = parseInt(ctx.match[1], 10);
     adminDmState.set(telegramId, targetTelegramId);
     adminBroadcastState.set(telegramId, false);
+    adminConfigState.delete(telegramId);
 
-    const text = `✉️ **Написать пользователю**\n\nОтправьте мне сообщение, и я перешлю его этому пользователю.\n\nДля отмены нажмите кнопку ниже.`;
+    let targetName = 'Неизвестный';
+    try {
+        const targetUser = await getUserByTelegramId(targetTelegramId);
+        if (targetUser) targetName = escapeMarkdown(targetUser.username);
+    } catch(e) {}
+
+    const text = `✉️ **Вы пишете сообщение пользователю:** **${targetName}**\n\nОтправьте мне сообщение (текст, картинку или кружок), и я перешлю его.\n\nДля отмены нажмите кнопку ниже.`;
     const keyboard = Markup.inlineKeyboard([
         [Markup.button.callback('🔙 Назад в админ-меню', 'action_admin_main')],
         [Markup.button.callback('❌ Отмена', 'admin_broadcast_cancel')]
+    ]);
+
+    await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+    await ctx.answerCbQuery();
+});
+
+// --- CONFIG MENU ---
+bot.action('admin_config_menu', async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId || !isAdmin(telegramId)) return;
+
+    adminConfigState.delete(telegramId);
+    const config = loadConfig();
+
+    const text = `⚙️ **Настройка авто-напоминаний об оплате**\n\n` +
+                 `Текущие настройки:\n` +
+                 `📅 **День месяца:** ${config.paymentNotificationDay || 'Отключено (0)'}\n` +
+                 `⏰ **Время:** ${config.paymentNotificationTime} (По Москве)\n` +
+                 `📝 **Текст:**\n\`${config.paymentNotificationMessage}\``;
+
+    const keyboard = Markup.inlineKeyboard([
+        [Markup.button.callback('📅 Изменить день', 'admin_config_day'), Markup.button.callback('⏰ Изменить время', 'admin_config_time')],
+        [Markup.button.callback('📝 Изменить текст', 'admin_config_msg')],
+        [Markup.button.callback('🔙 Назад в админ-меню', 'action_admin_main')]
+    ]);
+
+    await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+    await ctx.answerCbQuery();
+});
+
+bot.action(/admin_config_(day|time|msg)/, async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId || !isAdmin(telegramId)) return;
+
+    const type = ctx.match[1].toUpperCase() as 'DAY' | 'TIME' | 'MSG';
+    adminConfigState.set(telegramId, type);
+
+    let text = '';
+    if (type === 'DAY') text = `Введите день месяца для рассылки (от 1 до 31). Введите 0, чтобы отключить рассылку.`;
+    else if (type === 'TIME') text = `Введите время по Москве в формате ЧЧ:ММ (например, 10:00 или 18:30).`;
+    else if (type === 'MSG') text = `Введите новый текст сообщения для рассылки.`;
+
+    const keyboard = Markup.inlineKeyboard([
+        [Markup.button.callback('🔙 Назад к настройкам', 'admin_config_menu')]
     ]);
 
     await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
@@ -603,6 +661,43 @@ bot.on('message', async (ctx) => {
         } catch (err) {
             await ctx.reply(`❌ Ошибка отправки сообщения. Возможно, пользователь заблокировал бота.`);
         }
+        return;
+    }
+
+    // Check if admin is configuring auto-notifications
+    const configState = adminConfigState.get(telegramId);
+    if (isAdmin(telegramId) && configState) {
+        const text = 'text' in ctx.message ? ctx.message.text : '';
+        if (!text) {
+            await ctx.reply("Пожалуйста, отправьте текст.");
+            return;
+        }
+
+        const config = loadConfig();
+        if (configState === 'DAY') {
+            const day = parseInt(text, 10);
+            if (isNaN(day) || day < 0 || day > 31) {
+                await ctx.reply("❌ Неверный формат. Введите число от 0 до 31.");
+                return;
+            }
+            config.paymentNotificationDay = day;
+        } else if (configState === 'TIME') {
+            const parts = text.split(':');
+            if (parts.length !== 2 || isNaN(parseInt(parts[0], 10)) || isNaN(parseInt(parts[1], 10))) {
+                await ctx.reply("❌ Неверный формат. Введите время в формате ЧЧ:ММ (например, 10:00).");
+                return;
+            }
+            config.paymentNotificationTime = text;
+        } else if (configState === 'MSG') {
+            config.paymentNotificationMessage = text;
+        }
+
+        saveConfig(config);
+        reloadCronJobs(bot);
+        adminConfigState.delete(telegramId);
+
+        const keyboard = Markup.inlineKeyboard([[Markup.button.callback('🔙 Вернуться к настройкам', 'admin_config_menu')]]);
+        await ctx.reply("✅ Настройки успешно сохранены и авто-рассылка перезапущена!", { ...keyboard });
         return;
     }
 

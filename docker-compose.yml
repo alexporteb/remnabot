@@ -1,8 +1,10 @@
-
 services:
   remnabot:
     image: ghcr.io/alexporteb/remnabot:main
     container_name: remnabot
+    volumes:
+      - ./.env:/app/.env
+      - ./data:/app/data
     restart: unless-stopped
     env_file:
       - .env
