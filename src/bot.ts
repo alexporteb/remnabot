@@ -469,36 +469,25 @@ async function renderAdminUsersPage(ctx: any, page: number) {
     const startIdx = page * PAGE_SIZE;
     const pageUsers = usersWithDays.slice(startIdx, startIdx + PAGE_SIZE);
 
-    let text = `👥 **Список пользователей (Страница ${page + 1}/${totalPages})**\n\n`;
-    text += `_Нажмите на кнопку с именем под сообщением, чтобы моментально продлить подписку на 1 месяц._\n\n`;
+    let text = `👥 **Список пользователей (Страница ${page + 1}/${totalPages})**\n\n_Выберите пользователя из списка:_`;
 
     const buttons: any[][] = [];
+    let currentRow: any[] = [];
 
-    pageUsers.forEach((u, i) => {
+    pageUsers.forEach((u) => {
         const isExpired = u.status === 'EXPIRED';
         const statusEmoji = isExpired ? '🔴' : '🟢';
-        let expireStr = isExpired ? 'Истекла' : `${u.daysLeft} дн.`;
-        const isUnlimited = u.daysLeft === null || u.daysLeft === undefined || u.daysLeft > 3650;
-        if (isUnlimited) expireStr = '∞';
-
-        const safeUsername = escapeMarkdown(u.username);
-        text += `${startIdx + i + 1}. ${statusEmoji} **${safeUsername}** - ${expireStr}\n`;
         
-        const userButtons = [];
-        // Show extend button only if not unlimited
-        if (!isUnlimited) {
-            userButtons.push(Markup.button.callback(`💰 Продлить ${u.username}`, `admin_extend:${u.uuid}:${page}`));
-        }
-        
-        // Show message button if user has telegramId
-        if (u.telegramId) {
-            userButtons.push(Markup.button.callback(`✉️ Написать`, `admin_dm_init:${u.telegramId}`));
-        }
-
-        if (userButtons.length > 0) {
-            buttons.push(userButtons);
+        currentRow.push(Markup.button.callback(`${statusEmoji} ${u.username}`, `admin_user_detail:${u.uuid}:${page}`));
+        if (currentRow.length === 2) {
+            buttons.push(currentRow);
+            currentRow = [];
         }
     });
+
+    if (currentRow.length > 0) {
+        buttons.push(currentRow);
+    }
 
     // Pagination buttons
     const navRow = [];
@@ -528,6 +517,72 @@ bot.action(/admin_users_page:(\d+)/, async (ctx) => {
         console.error(e);
         await ctx.answerCbQuery("Ошибка.", { show_alert: true });
     }
+});
+
+bot.action(/admin_user_detail:(.+):(\d+)/, async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId || !isAdmin(telegramId)) return;
+
+    const targetUuid = ctx.match[1];
+    const page = parseInt(ctx.match[2], 10);
+
+    let users = await getAllUsers();
+    const user = users.find(u => u.uuid === targetUuid);
+    
+    if (!user) {
+        return ctx.answerCbQuery("Пользователь не найден", { show_alert: true });
+    }
+
+    let tgUsernameStr = 'Нет данных';
+    if (user.telegramId) {
+        try {
+            const chat = await ctx.telegram.getChat(user.telegramId);
+            if ('username' in chat && chat.username) {
+                tgUsernameStr = `@${escapeMarkdown(chat.username)}`;
+            } else if ('first_name' in chat) {
+                tgUsernameStr = escapeMarkdown(chat.first_name);
+            }
+        } catch (e) {}
+    }
+
+    const isExpired = user.status === 'EXPIRED';
+    const statusEmoji = isExpired ? '🔴' : '🟢';
+    let expireStr = isExpired ? 'Истекла' : 'Активна';
+    let isUnlimited = false;
+    
+    if (user.expireAt) {
+        const diff = new Date(user.expireAt).getTime() - Date.now();
+        const daysLeft = Math.ceil(diff / (1000 * 60 * 60 * 24));
+        if (daysLeft > 3650) {
+            isUnlimited = true;
+            expireStr = '∞ (Безлимит)';
+        } else if (!isExpired) {
+            expireStr = `${daysLeft} дн.`;
+        }
+    } else {
+        isUnlimited = true;
+        expireStr = '∞ (Безлимит)';
+    }
+
+    const text = `👤 **Профиль пользователя:** ${escapeMarkdown(user.username)}\n` +
+                 `⏳ **Статус:** ${statusEmoji} ${expireStr}\n` +
+                 `🆔 **Telegram ID:** ${user.telegramId || 'Не привязан'}\n` +
+                 `💬 **Telegram Username:** ${tgUsernameStr}`;
+
+    const buttons = [];
+    
+    if (!isUnlimited) {
+        buttons.push([Markup.button.callback(`💰 Продлить на 1 мес.`, `admin_extend:${user.uuid}:${page}`)]);
+    }
+    
+    if (user.telegramId) {
+        buttons.push([Markup.button.callback(`✉️ Отправить сообщение`, `admin_dm_init:${user.telegramId}`)]);
+    }
+    
+    buttons.push([Markup.button.callback('🔙 Назад к списку', `admin_users_page:${page}`)]);
+
+    await ctx.editMessageText(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+    await ctx.answerCbQuery();
 });
 
 bot.action(/admin_extend:(.+):(\d+)/, async (ctx) => {
