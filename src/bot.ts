@@ -606,6 +606,7 @@ async function renderAdminUserDetail(ctx: any, targetUuid: string, page: number)
     }
 
     buttons.push([Markup.button.callback(`⏳ Продлить подписку`, `admin_extend_init:${user.uuid}:${page}`)]);
+    buttons.push([Markup.button.callback(`⚙️ Настройки подписки`, `a_sub_menu:${user.uuid}:${page}`)]);
     
     if (user.telegramId) {
         buttons.push([Markup.button.callback(`✉️ Отправить сообщение`, `admin_dm_init:${user.telegramId}`)]);
@@ -651,7 +652,7 @@ bot.action(/admin_extend_init:(.+):(\d+)/, async (ctx) => {
     const text = `⏳ **Продление подписки**\n\nВыберите, на какой срок вы хотите продлить подписку пользователя:`;
     const keyboard = Markup.inlineKeyboard([
         [Markup.button.callback('1 месяц', `admin_extend:${targetUuid}:30:${page}`), Markup.button.callback('3 месяца', `admin_extend:${targetUuid}:90:${page}`)],
-        [Markup.button.callback('На год', `admin_extend:${targetUuid}:365:${page}`), Markup.button.callback('Безлимит', `admin_extend:${targetUuid}:36500:${page}`)],
+        [Markup.button.callback('На год', `admin_extend:${targetUuid}:365:${page}`), Markup.button.callback('Безлимит', `admin_extend:${targetUuid}:3650:${page}`)],
         [Markup.button.callback('🔙 Назад к профилю', `admin_user_detail:${targetUuid}:${page}`)]
     ]);
 
@@ -675,6 +676,153 @@ bot.action(/admin_extend:(.+):(\d+):(\d+)/, async (ctx) => {
     } catch (e) {
         console.error(e);
         await ctx.answerCbQuery("Ошибка при продлении.", { show_alert: true });
+    }
+});
+
+async function renderAdminSubMenu(ctx: any, userUuid: string, page: number) {
+    const users = await getAllUsers();
+    const user = users.find(u => u.uuid === userUuid);
+    if (!user) return ctx.answerCbQuery("Пользователь не найден", { show_alert: true });
+
+    const subInfo = await getSubscriptionInfo(user.shortUuid);
+    if (!subInfo || !subInfo.isFound) {
+        return ctx.answerCbQuery("Информация о подписке не найдена.", { show_alert: true });
+    }
+
+    let text = `🔗 **Подписка пользователя:** ${escapeMarkdown(user.username)}\n\n`;
+    text += `**Ссылка на автонастройку:**\n\`${subInfo.subscriptionUrl}\`\n`;
+
+    const keyboard = Markup.inlineKeyboard([
+        [Markup.button.url('🌐 Открыть в браузере', subInfo.subscriptionUrl)],
+        [Markup.button.callback('🔄 Пересоздать ссылку', `a_revoke_sub:${userUuid}:${page}`)],
+        [Markup.button.callback('📱 Устройства (HWID)', `a_hwid_menu:${userUuid}:${page}`)],
+        [Markup.button.callback('🔙 Назад к профилю', `admin_user_detail:${userUuid}:${page}`)]
+    ]);
+
+    await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+}
+
+bot.action(/a_sub_menu:(.+):(\d+)/, async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId || !isAdmin(telegramId)) return;
+    try {
+        await renderAdminSubMenu(ctx, ctx.match[1], parseInt(ctx.match[2], 10));
+        await ctx.answerCbQuery();
+    } catch (e) {
+        console.error(e);
+        await ctx.answerCbQuery("Ошибка.", { show_alert: true });
+    }
+});
+
+bot.action(/a_revoke_sub:(.+):(\d+)/, async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId || !isAdmin(telegramId)) return;
+    const targetUuid = ctx.match[1];
+    const page = parseInt(ctx.match[2], 10);
+
+    const text = `⚠️ **Внимание!**\n\nВы уверены, что хотите пересоздать ссылку на подписку для этого пользователя?\nСтарая ссылка перестанет работать.`;
+    const keyboard = Markup.inlineKeyboard([
+        [Markup.button.callback('✅ Да, пересоздать', `a_revoke_exec:${targetUuid}:${page}`)],
+        [Markup.button.callback('❌ Отмена', `a_sub_menu:${targetUuid}:${page}`)]
+    ]);
+
+    await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+    await ctx.answerCbQuery();
+});
+
+bot.action(/a_revoke_exec:(.+):(\d+)/, async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId || !isAdmin(telegramId)) return;
+    const targetUuid = ctx.match[1];
+    const page = parseInt(ctx.match[2], 10);
+
+    try {
+        await revokeUserSubscription(targetUuid);
+        console.log(`[ADMIN_REVOKE] Admin (ID: ${telegramId}) revoked sub for user UUID ${targetUuid}`);
+        await ctx.answerCbQuery("⏳ Пересоздаю ссылку...", { show_alert: false });
+        await new Promise(resolve => setTimeout(resolve, 2500));
+        await renderAdminSubMenu(ctx, targetUuid, page);
+    } catch (e) {
+        console.error(e);
+        await ctx.answerCbQuery("Ошибка при пересоздании подписки.", { show_alert: true });
+    }
+});
+
+async function renderAdminHwidMenu(ctx: any, userUuid: string, page: number) {
+    const users = await getAllUsers();
+    const user = users.find(u => u.uuid === userUuid);
+    if (!user) return ctx.answerCbQuery("Пользователь не найден", { show_alert: true });
+
+    const hwidDevices = await getUserHwidDevices(user.uuid);
+    let text = `📱 **Управление устройствами (HWID)**\nПользователь: ${escapeMarkdown(user.username)}\n\n`;
+
+    const buttons: any[][] = [];
+    if (!hwidDevices || hwidDevices.length === 0) {
+        text += `_Нет привязанных устройств._\n`;
+    } else {
+        text += `К подписке привязаны следующие устройства:\n\n`;
+        hwidDevices.forEach((d, i) => {
+            const name = escapeMarkdown(d.deviceModel || d.osVersion || d.platform || 'Неизвестное устройство');
+            text += `**Устройство ${i + 1}**\n`;
+            text += `Имя: ${name}\n`;
+            text += `Добавлено: ${new Date(d.createdAt).toLocaleDateString('ru-RU')}\n\n`;
+            buttons.push([Markup.button.callback(`❌ Удалить устройство ${i + 1}`, `a_del_h:${user.shortUuid}:${d.hwid}:${page}`)]);
+        });
+        buttons.push([Markup.button.callback('🗑️ Сбросить все устройства', `a_res_h:${userUuid}:${page}`)]);
+    }
+    buttons.push([Markup.button.callback('🔙 Назад к подписке', `a_sub_menu:${userUuid}:${page}`)]);
+
+    await ctx.editMessageText(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+}
+
+bot.action(/a_hwid_menu:(.+):(\d+)/, async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId || !isAdmin(telegramId)) return;
+    try {
+        await renderAdminHwidMenu(ctx, ctx.match[1], parseInt(ctx.match[2], 10));
+        await ctx.answerCbQuery();
+    } catch (e) {
+        console.error(e);
+        await ctx.answerCbQuery("Ошибка.", { show_alert: true });
+    }
+});
+
+bot.action(/a_del_h:(.+):(.+):(\d+)/, async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId || !isAdmin(telegramId)) return;
+    const shortUuid = ctx.match[1];
+    const hwid = ctx.match[2];
+    const page = parseInt(ctx.match[3], 10);
+
+    try {
+        const users = await getAllUsers();
+        const user = users.find(u => u.shortUuid === shortUuid);
+        if (!user) return ctx.answerCbQuery("Пользователь не найден", { show_alert: true });
+
+        await deleteHwidDevice(user.uuid, hwid);
+        console.log(`[ADMIN_HWID_DEL] Admin (ID: ${telegramId}) deleted HWID ${hwid} for user ${user.username}`);
+        await ctx.answerCbQuery("✅ Устройство успешно удалено!", { show_alert: true });
+        await renderAdminHwidMenu(ctx, user.uuid, page);
+    } catch (e) {
+        console.error(e);
+        await ctx.answerCbQuery("Ошибка при удалении устройства.", { show_alert: true });
+    }
+});
+
+bot.action(/a_res_h:(.+):(\d+)/, async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId || !isAdmin(telegramId)) return;
+    const targetUuid = ctx.match[1];
+    const page = parseInt(ctx.match[2], 10);
+
+    try {
+        await deleteAllHwidDevices(targetUuid);
+        console.log(`[ADMIN_HWID_RESET] Admin (ID: ${telegramId}) reset all HWIDs for user UUID ${targetUuid}`);
+        await ctx.answerCbQuery("✅ Все устройства успешно сброшены!", { show_alert: true });
+        await renderAdminHwidMenu(ctx, targetUuid, page);
+    } catch (e) {
+        console.error(e);
+        await ctx.answerCbQuery("Ошибка при сбросе устройств.", { show_alert: true });
     }
 });
 
