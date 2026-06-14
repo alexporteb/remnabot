@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import { startCronJobs, reloadCronJobs } from './cron';
 import { loadConfig, saveConfig } from './config';
 import { getUserByTelegramId, getSubscriptionInfo, deleteAllHwidDevices, getUserHwidDevices, deleteHwidDevice, getSubscriptionSettings, revokeUserSubscription, getAllUsers, extendUserSubscription, createUser, changeUserStatus } from './api';
+import { loadActiveUsers, saveActiveUser, isUserActive } from './active_users';
 
 dotenv.config();
 
@@ -13,7 +14,16 @@ if (!BOT_TOKEN) {
     process.exit(1);
 }
 
+loadActiveUsers();
 const bot = new Telegraf(BOT_TOKEN);
+
+// Mark any user who interacts as active
+bot.use(async (ctx, next) => {
+    if (ctx.from?.id) {
+        saveActiveUser(ctx.from.id);
+    }
+    return next();
+});
 
 function escapeMarkdown(text: string): string {
     if (!text) return '';
@@ -411,7 +421,14 @@ async function renderAdminMainMenu(ctx: any) {
     adminConfigState.delete(telegramId);
     adminAddUserState.delete(telegramId);
 
-    const text = `👑 **Панель Администратора**\n\nВыберите нужное действие:`;
+    const users = await getAllUsers();
+    const totalUsers = users.length;
+    const botUsers = users.filter(u => isUserActive(u.telegramId)).length;
+    const webUsers = totalUsers - botUsers;
+
+    const text = `👑 **Панель Администратора**\n\n` +
+                 `👥 **Всего пользователей:** ${totalUsers} (В боте: ${botUsers}, Без бота: ${webUsers})\n\n` +
+                 `Выберите нужное действие:`;
     const keyboard = Markup.inlineKeyboard([
         [Markup.button.callback('👥 Общий список пользователей', 'admin_users_page:0')],
         [Markup.button.callback('➕ Создать пользователя', 'admin_add_user_init')],
@@ -487,9 +504,10 @@ async function renderAdminUsersPage(ctx: any, page: number) {
     pageUsers.forEach((u) => {
         const isExpired = u.status === 'EXPIRED';
         const isRed = isExpired || (u.daysLeft !== null && u.daysLeft !== undefined && u.daysLeft < 30);
-        const statusEmoji = isRed ? '🔴' : '🟢';
+        const statusEmoji = u.status === 'DISABLED' ? '🛑' : (isRed ? '🔴' : '🟢');
+        const tgIcon = isUserActive(u.telegramId) ? '🤖' : '🌐';
         
-        currentRow.push(Markup.button.callback(`${statusEmoji} ${u.username}`, `admin_user_detail:${u.uuid}:${page}`));
+        currentRow.push(Markup.button.callback(`${statusEmoji} ${u.username} ${tgIcon}`, `admin_user_detail:${u.uuid}:${page}`));
         if (currentRow.length === 2) {
             buttons.push(currentRow);
             currentRow = [];
@@ -592,10 +610,12 @@ async function renderAdminUserDetail(ctx: any, targetUuid: string, page: number)
     const usedTrafficGb = user.userTraffic?.usedTrafficBytes ? (user.userTraffic.usedTrafficBytes / 1073741824).toFixed(2) : '0.00';
     const limitGb = user.trafficLimitBytes ? (user.trafficLimitBytes / 1073741824).toFixed(2) + ' GiB' : '∞';
 
+    const tgStatus = isUserActive(user.telegramId) ? '🤖 В боте' : '🌐 Только панель';
+
     const text = `👤 **Профиль пользователя:** ${escapeMarkdown(user.username)}\n` +
                  `⏳ **Статус:** ${statusEmoji} ${expireStr}\n` +
                  `📈 **Использовано трафика:** ${usedTrafficGb} GiB из ${limitGb}\n` +
-                 `🆔 **Telegram ID:** ${user.telegramId || 'Не привязан'}` + tgUsernameStr;
+                 `🆔 **Telegram ID:** ${user.telegramId || 'Не привязан'} (${tgStatus})` + tgUsernameStr;
 
     const buttons = [];
     
