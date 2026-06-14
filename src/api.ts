@@ -181,6 +181,19 @@ export async function revokeUserSubscription(userUuid: string): Promise<void> {
 
 export async function extendUserSubscription(userUuid: string, days: number): Promise<void> {
     try {
+        if (days === 2099) {
+            const expireAtDate = new Date();
+            expireAtDate.setFullYear(2099);
+            await apiClient.post(`/api/users/bulk/update`, {
+                uuids: [userUuid],
+                fields: {
+                    expireAt: expireAtDate.toISOString(),
+                    status: 'ACTIVE'
+                }
+            });
+            return;
+        }
+
         await apiClient.post(`/api/users/bulk/extend-expiration-date`, {
             uuids: [userUuid],
             extendDays: days
@@ -202,7 +215,11 @@ export async function extendUserSubscription(userUuid: string, days: number): Pr
 export async function createUser(username: string, days: number, telegramId?: number): Promise<void> {
     try {
         const expireAtDate = new Date();
-        expireAtDate.setDate(expireAtDate.getDate() + days);
+        if (days === 2099) {
+            expireAtDate.setFullYear(2099);
+        } else {
+            expireAtDate.setDate(expireAtDate.getDate() + days);
+        }
         const payload: any = { username, expireAt: expireAtDate.toISOString(), status: 'ACTIVE' };
         if (telegramId) payload.telegramId = telegramId;
         await apiClient.post(`/api/users`, payload);

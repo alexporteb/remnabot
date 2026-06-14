@@ -652,7 +652,7 @@ bot.action(/admin_extend_init:(.+):(\d+)/, async (ctx) => {
     const text = `⏳ **Продление подписки**\n\nВыберите, на какой срок вы хотите продлить подписку пользователя:`;
     const keyboard = Markup.inlineKeyboard([
         [Markup.button.callback('1 месяц', `admin_extend:${targetUuid}:30:${page}`), Markup.button.callback('3 месяца', `admin_extend:${targetUuid}:90:${page}`)],
-        [Markup.button.callback('На год', `admin_extend:${targetUuid}:365:${page}`), Markup.button.callback('Безлимит', `admin_extend:${targetUuid}:3650:${page}`)],
+        [Markup.button.callback('На год', `admin_extend:${targetUuid}:365:${page}`), Markup.button.callback('Безлимит', `admin_extend:${targetUuid}:2099:${page}`)],
         [Markup.button.callback('🔙 Назад к профилю', `admin_user_detail:${targetUuid}:${page}`)]
     ]);
 
@@ -1067,7 +1067,7 @@ bot.on('message', async (ctx) => {
             
             const keyboard = Markup.inlineKeyboard([
                 [Markup.button.callback('1 месяц', 'admin_add_user_duration:30'), Markup.button.callback('3 месяца', 'admin_add_user_duration:90')],
-                [Markup.button.callback('На год', 'admin_add_user_duration:365'), Markup.button.callback('Безлимит', 'admin_add_user_duration:36500')],
+                [Markup.button.callback('На год', 'admin_add_user_duration:365'), Markup.button.callback('Безлимит', 'admin_add_user_duration:2099')],
                 [Markup.button.callback('🔙 Назад в админ-меню', 'action_admin_main')]
             ]);
             await ctx.reply(`👤 Логин **${escapeMarkdown(username)}** принят.\n\n**Шаг 2 из 3:** На какой срок создать подписку?`, { parse_mode: 'Markdown', ...keyboard });
