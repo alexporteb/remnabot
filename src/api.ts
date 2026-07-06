@@ -267,6 +267,10 @@ export interface NodeItem {
     isConnected: boolean;
     isDisabled: boolean;
     usersOnline: number;
+    isTrafficTrackingActive: boolean;
+    trafficResetDay: number;
+    trafficLimitBytes: number;
+    trafficUsedBytes: number;
     system?: {
         info?: {
             memoryTotal: number;

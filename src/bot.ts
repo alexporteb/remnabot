@@ -498,7 +498,6 @@ bot.action('admin_nodes_menu', async (ctx) => {
 
         // Traffilk Nodes
         if (traffilkNodes.length > 0) {
-            text += `\n📊 **Мониторинг серверов (Traffilk):**\n`;
             const traffilkButtonsRow = [];
             for (const node of traffilkNodes) {
                 const status = node.status === 'up' ? '🟢' : '🔴';
@@ -537,6 +536,14 @@ bot.action(/^a_n_r:(.+)$/, async (ctx) => {
         let text = `🔵 **VPN Сервер: ${escapeMarkdown(node.name)}**\n`;
         text += `Статус: ${status}\n`;
         text += `👥 Пользователей онлайн: ${node.usersOnline}\n\n`;
+
+        if (node.isTrafficTrackingActive) {
+            text += `📊 Трафик: ${formatBytes(node.trafficUsedBytes)} / ${formatBytes(node.trafficLimitBytes)}\n`;
+            if (node.trafficResetDay) {
+                text += `🔄 Сброс: ${node.trafficResetDay} числа\n`;
+            }
+            text += `\n`;
+        }
 
         if (node.system?.stats) {
             const stats = node.system.stats;
@@ -582,6 +589,14 @@ bot.action(/^a_n_t:(.+)$/, async (ctx) => {
         const status = node.status === 'up' ? '🟢 В сети' : '🔴 Недоступен';
         let text = `📊 **Мониторинг сервера: ${escapeMarkdown(node.name)}**\n`;
         text += `Статус: ${status}\n\n`;
+
+        if (node.isTrafficTrackingActive) {
+            text += `📊 Трафик: ${formatBytes(node.trafficUsedBytes)} / ${formatBytes(node.trafficLimitBytes)}\n`;
+            if (node.trafficResetDay) {
+                text += `🔄 Сброс: ${node.trafficResetDay} числа\n`;
+            }
+            text += `\n`;
+        }
         
         text += `🖥 CPU: ${node.cpuLoadPercent.toFixed(1)}% | 💾 RAM: ${formatBytes(node.memUsedBytes)} / ${formatBytes(node.memTotalBytes)}\n`;
         text += `⬇️ RX: ${formatBytes(node.rxBytesPerSec)}/s | ⬆️ TX: ${formatBytes(node.txBytesPerSec)}/s\n`;
