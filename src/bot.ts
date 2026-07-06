@@ -2,8 +2,26 @@ import { Telegraf, Markup } from 'telegraf';
 import dotenv from 'dotenv';
 import { startCronJobs, reloadCronJobs } from './cron';
 import { loadConfig, saveConfig } from './config';
-import { getUserByTelegramId, getSubscriptionInfo, deleteAllHwidDevices, getUserHwidDevices, deleteHwidDevice, getSubscriptionSettings, revokeUserSubscription, getAllUsers, extendUserSubscription, createUser, changeUserStatus, deleteUser, resetUserTraffic, getAllNodes, restartAllNodes, restartNode } from './api';
+import { getUserByTelegramId, getSubscriptionInfo, deleteAllHwidDevices, getUserHwidDevices, deleteHwidDevice, getSubscriptionSettings, revokeUserSubscription, getAllUsers, extendUserSubscription, createUser, changeUserStatus, deleteUser, resetUserTraffic, getAllNodes, restartAllNodes, restartNode, getTraffilkNodes } from './api';
 import { loadActiveUsers, saveActiveUser, isUserActive } from './active_users';
+
+function formatBytes(bytes: number, decimals = 2) {
+    if (!+bytes) return '0 B';
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+}
+
+function formatUptime(seconds: number) {
+    const d = Math.floor(seconds / (3600*24));
+    const h = Math.floor(seconds % (3600*24) / 3600);
+    const m = Math.floor(seconds % 3600 / 60);
+    if (d > 0) return `${d} дн. ${h} ч.`;
+    if (h > 0) return `${h} ч. ${m} мин.`;
+    return `${m} мин.`;
+}
 
 dotenv.config();
 
@@ -456,17 +474,54 @@ bot.action('admin_nodes_menu', async (ctx) => {
     if (!telegramId || !isAdmin(telegramId)) return;
 
     try {
-        const nodes = await getAllNodes();
+        const [remnaNodes, traffilkNodes] = await Promise.all([
+            getAllNodes(),
+            getTraffilkNodes()
+        ]);
+
         let text = `🌐 **Управление нодами**\n\n`;
         const buttons = [];
-
         buttons.push([Markup.button.callback('♻️ Перезагрузить все ноды', 'a_node_rst_all')]);
 
-        for (const node of nodes) {
-            const status = node.isDisabled ? '🔴' : (node.isConnected ? '🟢' : '🟡');
-            text += `${status} **${escapeMarkdown(node.name)}**\n`;
-            text += `👥 Онлайн: ${node.usersOnline}\n\n`;
-            buttons.push([Markup.button.callback(`♻️ Перезагрузить ${node.name}`, `a_node_rst:${node.uuid}`)]);
+        text += `🔵 **VPN Сервера (Remnawave)**\n\n`;
+        if (remnaNodes.length === 0) {
+            text += `_Нет доступных нод_\n\n`;
+        } else {
+            for (const node of remnaNodes) {
+                const status = node.isDisabled ? '🔴' : (node.isConnected ? '🟢' : '🟡');
+                text += `${status} **${escapeMarkdown(node.name)}**\n`;
+                text += `👥 Онлайн: ${node.usersOnline}\n`;
+                
+                if (node.system?.stats) {
+                    const stats = node.system.stats;
+                    const memUsed = formatBytes(stats.memoryUsed);
+                    const memTotal = node.system.info?.memoryTotal ? formatBytes(node.system.info.memoryTotal) : '?';
+                    const uptime = formatUptime(stats.uptime);
+                    const loadAvg = stats.loadAvg && stats.loadAvg.length > 0 ? stats.loadAvg[0].toFixed(2) : '?';
+                    
+                    text += `🖥 Load: ${loadAvg} | 💾 RAM: ${memUsed} / ${memTotal}\n`;
+                    text += `⏳ Uptime: ${uptime}\n`;
+                    if (stats.interface) {
+                        const rx = formatBytes(stats.interface.rxBytesPerSec) + '/s';
+                        const tx = formatBytes(stats.interface.txBytesPerSec) + '/s';
+                        text += `⬇️ RX: ${rx} | ⬆️ TX: ${tx}\n`;
+                    }
+                }
+                text += `\n`;
+                buttons.push([Markup.button.callback(`♻️ Перезагрузить ${node.name}`, `a_node_rst:${node.uuid}`)]);
+            }
+        }
+
+        text += `📊 **Мониторинг серверов (Traffilk)**\n\n`;
+        if (traffilkNodes.length === 0) {
+            text += `_Нет доступных серверов для мониторинга_\n\n`;
+        } else {
+            for (const node of traffilkNodes) {
+                const status = node.status === 'online' ? '🟢' : '🔴';
+                text += `${status} **${escapeMarkdown(node.name)}**\n`;
+                text += `🖥 CPU: ${node.cpuLoadPercent.toFixed(1)}% | 💾 RAM: ${formatBytes(node.memUsedBytes)} / ${formatBytes(node.memTotalBytes)}\n`;
+                text += `⬇️ RX: ${formatBytes(node.rxBytesPerSec)}/s | ⬆️ TX: ${formatBytes(node.txBytesPerSec)}/s\n\n`;
+            }
         }
 
         buttons.push([Markup.button.callback('🔙 Назад в админ-меню', 'action_admin_main')]);

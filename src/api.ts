@@ -6,6 +6,9 @@ dotenv.config();
 const API_URL = process.env.REMNAWAVE_API_URL;
 const API_KEY = process.env.REMNAWAVE_X_API_KEY;
 
+const TRAFFILK_API_URL = process.env.TRAFFILK_API_URL;
+const TRAFFILK_API_KEY = process.env.TRAFFILK_API_KEY;
+
 if (!API_URL || !API_KEY) {
     console.error("Missing REMNAWAVE_API_URL or REMNAWAVE_X_API_KEY in .env");
     process.exit(1);
@@ -20,6 +23,14 @@ const apiClient = axios.create({
         // Remnawave's ProxyCheckMiddleware requires these headers to accept direct local connections
         'X-Forwarded-Proto': 'https',
         'X-Forwarded-For': '127.0.0.1'
+    }
+});
+
+const traffilkClient = axios.create({
+    baseURL: TRAFFILK_API_URL,
+    headers: {
+        'Authorization': `Bearer ${TRAFFILK_API_KEY}`,
+        'Content-Type': 'application/json'
     }
 });
 
@@ -256,6 +267,20 @@ export interface NodeItem {
     isConnected: boolean;
     isDisabled: boolean;
     usersOnline: number;
+    system?: {
+        info?: {
+            memoryTotal: number;
+        };
+        stats?: {
+            memoryUsed: number;
+            uptime: number;
+            loadAvg: number[];
+            interface?: {
+                rxBytesPerSec: number;
+                txBytesPerSec: number;
+            };
+        };
+    };
 }
 
 export async function resetUserTraffic(userUuid: string): Promise<void> {
@@ -292,5 +317,39 @@ export async function restartNode(nodeUuid: string): Promise<void> {
     } catch (error) {
         console.error(`Error restarting node ${nodeUuid}:`, error instanceof AxiosError ? error.message : error);
         throw error;
+    }
+}
+
+export interface TraffilkNode {
+    id: number;
+    name: string;
+    url: string;
+    status: string;
+    trafficUsedBytes: number;
+    trafficLimitBytes: number;
+    isTrafficTrackingActive: boolean;
+    trafficResetDay: number;
+    rxBytesPerSec: number;
+    txBytesPerSec: number;
+    cpuLoadPercent: number;
+    loadAvg1: number;
+    loadAvg5: number;
+    loadAvg15: number;
+    memTotalBytes: number;
+    memUsedBytes: number;
+    uptimeSeconds: number;
+    netDropsRx: number;
+    netDropsTx: number;
+    fileDescriptors: number;
+    tcpConnections: number;
+}
+
+export async function getTraffilkNodes(): Promise<TraffilkNode[]> {
+    try {
+        const response = await traffilkClient.get('/api/traffilk/nodes');
+        return response.data as TraffilkNode[];
+    } catch (error) {
+        console.error(`Error fetching Traffilk nodes:`, error instanceof AxiosError ? error.message : error);
+        return [];
     }
 } 
