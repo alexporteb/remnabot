@@ -2,7 +2,7 @@ import { Telegraf, Markup } from 'telegraf';
 import dotenv from 'dotenv';
 import { startCronJobs, reloadCronJobs } from './cron';
 import { loadConfig, saveConfig } from './config';
-import { getUserByTelegramId, getSubscriptionInfo, deleteAllHwidDevices, getUserHwidDevices, deleteHwidDevice, getSubscriptionSettings, revokeUserSubscription, getAllUsers, extendUserSubscription, createUser, changeUserStatus } from './api';
+import { getUserByTelegramId, getSubscriptionInfo, deleteAllHwidDevices, getUserHwidDevices, deleteHwidDevice, getSubscriptionSettings, revokeUserSubscription, getAllUsers, extendUserSubscription, createUser, changeUserStatus, deleteUser } from './api';
 import { loadActiveUsers, saveActiveUser, isUserActive } from './active_users';
 
 dotenv.config();
@@ -27,7 +27,7 @@ bot.use(async (ctx, next) => {
 
 function escapeMarkdown(text: string): string {
     if (!text) return '';
-    return text.replace(/[_*[\]`]/g, '\\$&');
+    return text.replace(/[_*[\]`\\]/g, '\\$&');
 }
 
 // Generic error for unauthorized users
@@ -632,6 +632,7 @@ async function renderAdminUserDetail(ctx: any, targetUuid: string, page: number)
         buttons.push([Markup.button.callback(`✉️ Отправить сообщение`, `admin_dm_init:${user.telegramId}`)]);
     }
 
+    buttons.push([Markup.button.callback('🗑 Удалить пользователя', `a_del:${user.uuid}:${page}`)]);
     buttons.push([Markup.button.callback('🔙 Назад к списку', `admin_users_page:${page}`)]);
 
     console.log(`[DEBUG] Rendering detail for user ${targetUuid}. Buttons count: ${buttons.length}`);
@@ -659,6 +660,66 @@ bot.action(/a_st:(.+):([AD]):(\d+)/, async (ctx) => {
     } catch (e) {
         console.error(e);
         await ctx.answerCbQuery("Ошибка.", { show_alert: true });
+    }
+});
+
+bot.action(/a_del:(.+):(\d+)/, async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId || !isAdmin(telegramId)) return;
+
+    const targetUuid = ctx.match[1];
+    const page = parseInt(ctx.match[2], 10);
+
+    const text = `⚠️ **Подтверждение удаления**\n\nВы уверены, что хотите удалить пользователя навсегда? Это действие необратимо.`;
+    const buttons = [
+        [Markup.button.callback('✅ Да, удалить', `a_del_ok:${targetUuid}:${page}`)],
+        [Markup.button.callback('❌ Отмена', `admin_user_detail:${targetUuid}:${page}`)]
+    ];
+
+    await ctx.editMessageText(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+});
+
+bot.action(/a_del_ok:(.+):(\d+)/, async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId || !isAdmin(telegramId)) return;
+
+    const targetUuid = ctx.match[1];
+    const page = parseInt(ctx.match[2], 10);
+
+    try {
+        await deleteUser(targetUuid);
+        console.log(`[ADMIN] Telegram ID ${telegramId} deleted user UUID ${targetUuid}.`);
+        await ctx.answerCbQuery('✅ Пользователь успешно удален!', { show_alert: true });
+        
+        // Go back to the users list
+        const text = `👥 **Список пользователей**`;
+        const users = await getAllUsers();
+        
+        // Quick fallback logic for rendering the page
+        const usersPerPage = 10;
+        const maxPage = Math.max(0, Math.ceil(users.length / usersPerPage) - 1);
+        const currentPage = Math.min(page, maxPage);
+        const startIdx = currentPage * usersPerPage;
+        const pageUsers = users.slice(startIdx, startIdx + usersPerPage);
+
+        const buttons: any[] = [];
+        for (const user of pageUsers) {
+            let uName = user.username;
+            if (uName.length > 15) uName = uName.substring(0, 15) + '...';
+            const sEmoji = user.status === 'DISABLED' ? '🛑' : (user.status === 'EXPIRED' ? '🔴' : '🟢');
+            buttons.push([Markup.button.callback(`${sEmoji} ${uName}`, `admin_user_detail:${user.uuid}:${currentPage}`)]);
+        }
+
+        const navRow = [];
+        if (currentPage > 0) navRow.push(Markup.button.callback('◀️', `admin_users_page:${currentPage - 1}`));
+        if (currentPage < maxPage) navRow.push(Markup.button.callback('▶️', `admin_users_page:${currentPage + 1}`));
+        if (navRow.length > 0) buttons.push(navRow);
+        
+        buttons.push([Markup.button.callback('🔙 Назад', 'action_admin_main')]);
+        await ctx.editMessageText(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+    } catch (e) {
+        console.error(e);
+        await ctx.answerCbQuery("Ошибка при удалении.", { show_alert: true });
     }
 });
 

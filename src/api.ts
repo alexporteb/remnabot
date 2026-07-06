@@ -239,4 +239,13 @@ export async function changeUserStatus(userUuid: string, status: 'ACTIVE' | 'DIS
         console.error(`Error changing status for ${userUuid}:`, error instanceof AxiosError ? error.message : error);
         throw error;
     }
+}
+
+export async function deleteUser(userUuid: string): Promise<void> {
+    try {
+        await apiClient.delete(`/api/users/${userUuid}`);
+    } catch (error) {
+        console.error(`Error deleting user ${userUuid}:`, error instanceof AxiosError ? error.message : error);
+        throw error;
+    }
 } 

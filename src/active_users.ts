@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 
-const activeUsersPath = path.join(__dirname, '../data/active_users.json');
+const activeUsersPath = path.join(process.cwd(), 'data', 'active_users.json');
 
 let activeUsersSet = new Set<number>();
 

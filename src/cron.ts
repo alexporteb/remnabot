@@ -9,6 +9,11 @@ export function startCronJobs(bot: Telegraf) {
     reloadCronJobs(bot);
 }
 
+function escapeMarkdown(text: string): string {
+    if (!text) return '';
+    return text.replace(/[_*[\]`\\]/g, '\\$&');
+}
+
 export function reloadCronJobs(bot: Telegraf) {
     if (currentTask) {
         currentTask.stop();
@@ -53,7 +58,11 @@ export function reloadCronJobs(bot: Telegraf) {
             for (const user of users) {
                 if (user.telegramId) {
                     try {
-                        await bot.telegram.sendMessage(user.telegramId, msg);
+                        const message = msg
+                            .replace('{username}', escapeMarkdown(user.username))
+                            .replace('{expireDate}', escapeMarkdown(new Date(user.expireAt).toLocaleDateString('ru-RU')));
+                        
+                        await bot.telegram.sendMessage(user.telegramId, message, { parse_mode: 'Markdown' });
                         successCount++;
                     } catch (e) {
                         console.error(`[CRON] Failed to send to ${user.telegramId}:`, e);
