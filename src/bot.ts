@@ -479,49 +479,36 @@ bot.action('admin_nodes_menu', async (ctx) => {
             getTraffilkNodes()
         ]);
 
-        let text = `🌐 **Управление нодами**\n\n`;
+        let text = `🌐 **Управление нодами**\n\nВыберите ноду для просмотра детальной статистики:\n`;
         const buttons = [];
-        buttons.push([Markup.button.callback('♻️ Перезагрузить все ноды', 'a_node_rst_all')]);
-
-        text += `🔵 **VPN Сервера (Remnawave)**\n\n`;
-        if (remnaNodes.length === 0) {
-            text += `_Нет доступных нод_\n\n`;
-        } else {
-            for (const node of remnaNodes) {
-                const status = node.isDisabled ? '🔴' : (node.isConnected ? '🟢' : '🟡');
-                text += `${status} **${escapeMarkdown(node.name)}**\n`;
-                text += `👥 Онлайн: ${node.usersOnline}\n`;
-                
-                if (node.system?.stats) {
-                    const stats = node.system.stats;
-                    const memUsed = formatBytes(stats.memoryUsed);
-                    const memTotal = node.system.info?.memoryTotal ? formatBytes(node.system.info.memoryTotal) : '?';
-                    const uptime = formatUptime(stats.uptime);
-                    const loadAvg = stats.loadAvg && stats.loadAvg.length > 0 ? stats.loadAvg[0].toFixed(2) : '?';
-                    
-                    text += `🖥 Load: ${loadAvg} | 💾 RAM: ${memUsed} / ${memTotal}\n`;
-                    text += `⏳ Uptime: ${uptime}\n`;
-                    if (stats.interface) {
-                        const rx = formatBytes(stats.interface.rxBytesPerSec) + '/s';
-                        const tx = formatBytes(stats.interface.txBytesPerSec) + '/s';
-                        text += `⬇️ RX: ${rx} | ⬆️ TX: ${tx}\n`;
-                    }
-                }
-                text += `\n`;
-                buttons.push([Markup.button.callback(`♻️ Перезагрузить ${node.name}`, `a_node_rst:${node.uuid}`)]);
+        
+        // Remnawave Nodes
+        const remnaButtonsRow = [];
+        for (const node of remnaNodes) {
+            const status = node.isDisabled ? '🔴' : (node.isConnected ? '🟢' : '🟡');
+            remnaButtonsRow.push(Markup.button.callback(`${status} ${node.name}`, `a_n_r:${node.uuid}`));
+            if (remnaButtonsRow.length === 2) {
+                buttons.push([...remnaButtonsRow]);
+                remnaButtonsRow.length = 0;
             }
         }
+        if (remnaButtonsRow.length > 0) buttons.push([...remnaButtonsRow]);
+        
+        buttons.push([Markup.button.callback('♻️ Перезагрузить все ноды', 'a_node_rst_all')]);
 
-        text += `📊 **Мониторинг серверов (Traffilk)**\n\n`;
-        if (traffilkNodes.length === 0) {
-            text += `_Нет доступных серверов для мониторинга_\n\n`;
-        } else {
+        // Traffilk Nodes
+        if (traffilkNodes.length > 0) {
+            text += `\n📊 **Мониторинг серверов (Traffilk):**\n`;
+            const traffilkButtonsRow = [];
             for (const node of traffilkNodes) {
-                const status = node.status === 'online' ? '🟢' : '🔴';
-                text += `${status} **${escapeMarkdown(node.name)}**\n`;
-                text += `🖥 CPU: ${node.cpuLoadPercent.toFixed(1)}% | 💾 RAM: ${formatBytes(node.memUsedBytes)} / ${formatBytes(node.memTotalBytes)}\n`;
-                text += `⬇️ RX: ${formatBytes(node.rxBytesPerSec)}/s | ⬆️ TX: ${formatBytes(node.txBytesPerSec)}/s\n\n`;
+                const status = node.status === 'up' ? '🟢' : '🔴';
+                traffilkButtonsRow.push(Markup.button.callback(`${status} ${node.name}`, `a_n_t:${node.id}`));
+                if (traffilkButtonsRow.length === 2) {
+                    buttons.push([...traffilkButtonsRow]);
+                    traffilkButtonsRow.length = 0;
+                }
             }
+            if (traffilkButtonsRow.length > 0) buttons.push([...traffilkButtonsRow]);
         }
 
         buttons.push([Markup.button.callback('🔙 Назад в админ-меню', 'action_admin_main')]);
@@ -530,6 +517,83 @@ bot.action('admin_nodes_menu', async (ctx) => {
     } catch (e) {
         console.error(e);
         await ctx.answerCbQuery('Ошибка при получении списка нод.', { show_alert: true });
+    }
+});
+
+bot.action(/^a_n_r:(.+)$/, async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId || !isAdmin(telegramId)) return;
+
+    const nodeUuid = ctx.match[1];
+    try {
+        const nodes = await getAllNodes();
+        const node = nodes.find(n => n.uuid === nodeUuid);
+        if (!node) {
+            await ctx.answerCbQuery('Нода не найдена.', { show_alert: true });
+            return;
+        }
+
+        const status = node.isDisabled ? '🔴 Остановлена' : (node.isConnected ? '🟢 Онлайн' : '🟡 Ожидание');
+        let text = `🔵 **VPN Сервер: ${escapeMarkdown(node.name)}**\n`;
+        text += `Статус: ${status}\n`;
+        text += `👥 Пользователей онлайн: ${node.usersOnline}\n\n`;
+
+        if (node.system?.stats) {
+            const stats = node.system.stats;
+            const memUsed = formatBytes(stats.memoryUsed);
+            const memTotal = node.system.info?.memoryTotal ? formatBytes(node.system.info.memoryTotal) : '?';
+            const uptime = formatUptime(stats.uptime);
+            const loadAvg = stats.loadAvg && stats.loadAvg.length > 0 ? stats.loadAvg[0].toFixed(2) : '?';
+            
+            text += `🖥 Load: ${loadAvg} | 💾 RAM: ${memUsed} / ${memTotal}\n`;
+            text += `⏳ Uptime: ${uptime}\n`;
+            if (stats.interface) {
+                const rx = formatBytes(stats.interface.rxBytesPerSec) + '/s';
+                const tx = formatBytes(stats.interface.txBytesPerSec) + '/s';
+                text += `⬇️ RX: ${rx} | ⬆️ TX: ${tx}\n`;
+            }
+        }
+
+        const buttons = [
+            [Markup.button.callback(`♻️ Перезагрузить ${node.name}`, `a_node_rst:${node.uuid}`)],
+            [Markup.button.callback('🔙 К списку нод', 'admin_nodes_menu')]
+        ];
+
+        await ctx.editMessageText(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+    } catch (e) {
+        console.error(e);
+        await ctx.answerCbQuery('Ошибка при загрузке информации о ноде.', { show_alert: true });
+    }
+});
+
+bot.action(/^a_n_t:(.+)$/, async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId || !isAdmin(telegramId)) return;
+
+    const nodeId = parseInt(ctx.match[1], 10);
+    try {
+        const nodes = await getTraffilkNodes();
+        const node = nodes.find(n => n.id === nodeId);
+        if (!node) {
+            await ctx.answerCbQuery('Сервер не найден.', { show_alert: true });
+            return;
+        }
+
+        const status = node.status === 'up' ? '🟢 В сети' : '🔴 Недоступен';
+        let text = `📊 **Мониторинг сервера: ${escapeMarkdown(node.name)}**\n`;
+        text += `Статус: ${status}\n\n`;
+        
+        text += `🖥 CPU: ${node.cpuLoadPercent.toFixed(1)}% | 💾 RAM: ${formatBytes(node.memUsedBytes)} / ${formatBytes(node.memTotalBytes)}\n`;
+        text += `⬇️ RX: ${formatBytes(node.rxBytesPerSec)}/s | ⬆️ TX: ${formatBytes(node.txBytesPerSec)}/s\n`;
+
+        const buttons = [
+            [Markup.button.callback('🔙 К списку нод', 'admin_nodes_menu')]
+        ];
+
+        await ctx.editMessageText(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+    } catch (e) {
+        console.error(e);
+        await ctx.answerCbQuery('Ошибка при загрузке информации о сервере.', { show_alert: true });
     }
 });
 
