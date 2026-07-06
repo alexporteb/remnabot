@@ -248,4 +248,49 @@ export async function deleteUser(userUuid: string): Promise<void> {
         console.error(`Error deleting user ${userUuid}:`, error instanceof AxiosError ? error.message : error);
         throw error;
     }
+}
+
+export interface NodeItem {
+    uuid: string;
+    name: string;
+    isConnected: boolean;
+    isDisabled: boolean;
+    usersOnline: number;
+}
+
+export async function resetUserTraffic(userUuid: string): Promise<void> {
+    try {
+        await apiClient.post(`/api/users/${userUuid}/actions/reset-traffic`);
+    } catch (error) {
+        console.error(`Error resetting traffic for ${userUuid}:`, error instanceof AxiosError ? error.message : error);
+        throw error;
+    }
+}
+
+export async function getAllNodes(): Promise<NodeItem[]> {
+    try {
+        const response = await apiClient.get('/api/nodes');
+        return response.data?.response as NodeItem[];
+    } catch (error) {
+        console.error(`Error fetching nodes:`, error instanceof AxiosError ? error.message : error);
+        return [];
+    }
+}
+
+export async function restartAllNodes(): Promise<void> {
+    try {
+        await apiClient.post('/api/nodes/actions/restart-all');
+    } catch (error) {
+        console.error(`Error restarting all nodes:`, error instanceof AxiosError ? error.message : error);
+        throw error;
+    }
+}
+
+export async function restartNode(nodeUuid: string): Promise<void> {
+    try {
+        await apiClient.post(`/api/nodes/${nodeUuid}/actions/restart`);
+    } catch (error) {
+        console.error(`Error restarting node ${nodeUuid}:`, error instanceof AxiosError ? error.message : error);
+        throw error;
+    }
 } 

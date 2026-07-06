@@ -2,7 +2,7 @@ import { Telegraf, Markup } from 'telegraf';
 import dotenv from 'dotenv';
 import { startCronJobs, reloadCronJobs } from './cron';
 import { loadConfig, saveConfig } from './config';
-import { getUserByTelegramId, getSubscriptionInfo, deleteAllHwidDevices, getUserHwidDevices, deleteHwidDevice, getSubscriptionSettings, revokeUserSubscription, getAllUsers, extendUserSubscription, createUser, changeUserStatus, deleteUser } from './api';
+import { getUserByTelegramId, getSubscriptionInfo, deleteAllHwidDevices, getUserHwidDevices, deleteHwidDevice, getSubscriptionSettings, revokeUserSubscription, getAllUsers, extendUserSubscription, createUser, changeUserStatus, deleteUser, resetUserTraffic, getAllNodes, restartAllNodes, restartNode } from './api';
 import { loadActiveUsers, saveActiveUser, isUserActive } from './active_users';
 
 dotenv.config();
@@ -434,6 +434,7 @@ async function renderAdminMainMenu(ctx: any) {
         [Markup.button.callback('➕ Создать пользователя', 'admin_add_user_init')],
         [Markup.button.callback('📢 Отправить рассылку всем', 'admin_broadcast_init')],
         [Markup.button.callback('⚙️ Настройка авто-оплаты', 'admin_config_menu')],
+        [Markup.button.callback('🌐 Управление нодами', 'admin_nodes_menu')],
         [Markup.button.callback('🔙 Выйти к боту', 'action_back')]
     ]);
 
@@ -448,6 +449,60 @@ bot.command('admin', renderAdminMainMenu);
 bot.action('action_admin_main', async (ctx) => {
     await renderAdminMainMenu(ctx);
     await ctx.answerCbQuery();
+});
+
+bot.action('admin_nodes_menu', async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId || !isAdmin(telegramId)) return;
+
+    try {
+        const nodes = await getAllNodes();
+        let text = `🌐 **Управление нодами**\n\n`;
+        const buttons = [];
+
+        buttons.push([Markup.button.callback('♻️ Перезагрузить все ноды', 'a_node_rst_all')]);
+
+        for (const node of nodes) {
+            const status = node.isDisabled ? '🔴' : (node.isConnected ? '🟢' : '🟡');
+            text += `${status} **${escapeMarkdown(node.name)}**\n`;
+            text += `👥 Онлайн: ${node.usersOnline}\n\n`;
+            buttons.push([Markup.button.callback(`♻️ Перезагрузить ${node.name}`, `a_node_rst:${node.uuid}`)]);
+        }
+
+        buttons.push([Markup.button.callback('🔙 Назад в админ-меню', 'action_admin_main')]);
+
+        await ctx.editMessageText(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+    } catch (e) {
+        console.error(e);
+        await ctx.answerCbQuery('Ошибка при получении списка нод.', { show_alert: true });
+    }
+});
+
+bot.action('a_node_rst_all', async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId || !isAdmin(telegramId)) return;
+
+    try {
+        await restartAllNodes();
+        await ctx.answerCbQuery('✅ Все ноды отправлены на перезагрузку!', { show_alert: true });
+    } catch (e) {
+        console.error(e);
+        await ctx.answerCbQuery('Ошибка при перезагрузке.', { show_alert: true });
+    }
+});
+
+bot.action(/a_node_rst:(.+)/, async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId || !isAdmin(telegramId)) return;
+
+    const nodeUuid = ctx.match[1];
+    try {
+        await restartNode(nodeUuid);
+        await ctx.answerCbQuery('✅ Нода отправлена на перезагрузку!', { show_alert: true });
+    } catch (e) {
+        console.error(e);
+        await ctx.answerCbQuery('Ошибка при перезагрузке.', { show_alert: true });
+    }
 });
 
 bot.action('admin_broadcast_init', async (ctx) => {
@@ -627,6 +682,7 @@ async function renderAdminUserDetail(ctx: any, targetUuid: string, page: number)
 
     buttons.push([Markup.button.callback(`⏳ Продлить подписку`, `admin_extend_init:${user.uuid}:${page}`)]);
     buttons.push([Markup.button.callback(`⚙️ Настройки подписки`, `a_sub_menu:${user.uuid}:${page}`)]);
+    buttons.push([Markup.button.callback(`🔄 Обнулить трафик`, `a_rst_traf:${user.uuid}:${page}`)]);
     
     if (user.telegramId) {
         buttons.push([Markup.button.callback(`✉️ Отправить сообщение`, `admin_dm_init:${user.telegramId}`)]);
@@ -720,6 +776,23 @@ bot.action(/a_del_ok:(.+):(\d+)/, async (ctx) => {
     } catch (e) {
         console.error(e);
         await ctx.answerCbQuery("Ошибка при удалении.", { show_alert: true });
+    }
+});
+
+bot.action(/a_rst_traf:(.+):(\d+)/, async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId || !isAdmin(telegramId)) return;
+
+    const targetUuid = ctx.match[1];
+    const page = parseInt(ctx.match[2], 10);
+
+    try {
+        await resetUserTraffic(targetUuid);
+        await ctx.answerCbQuery('✅ Трафик успешно сброшен!', { show_alert: true });
+        await renderAdminUserDetail(ctx, targetUuid, page);
+    } catch (e) {
+        console.error(e);
+        await ctx.answerCbQuery("Ошибка при сбросе трафика.", { show_alert: true });
     }
 });
 
