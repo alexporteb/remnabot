@@ -2,16 +2,12 @@ import cron from 'node-cron';
 import { Telegraf } from 'telegraf';
 import { getAllUsers } from './api';
 import { loadConfig } from './config';
+import { escapeMarkdown } from './utils';
 
 let currentTask: any = null;
 
 export function startCronJobs(bot: Telegraf) {
     reloadCronJobs(bot);
-}
-
-function escapeMarkdown(text: string): string {
-    if (!text) return '';
-    return text.replace(/[_*[\]`\\]/g, '\\$&');
 }
 
 export function reloadCronJobs(bot: Telegraf) {

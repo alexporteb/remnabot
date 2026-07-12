@@ -17,7 +17,6 @@ if (!API_URL || !API_KEY) {
 const apiClient = axios.create({
     baseURL: API_URL,
     headers: {
-        'X-Api-Key': API_KEY,
         'Authorization': `Bearer ${API_KEY}`,
         'Content-Type': 'application/json',
         // Remnawave's ProxyCheckMiddleware requires these headers to accept direct local connections
@@ -26,13 +25,13 @@ const apiClient = axios.create({
     }
 });
 
-const traffilkClient = axios.create({
+const traffilkClient = (TRAFFILK_API_URL && TRAFFILK_API_KEY) ? axios.create({
     baseURL: TRAFFILK_API_URL,
     headers: {
         'Authorization': `Bearer ${TRAFFILK_API_KEY}`,
         'Content-Type': 'application/json'
     }
-});
+}) : null;
 
 export interface User {
     uuid: string;
@@ -223,7 +222,7 @@ export async function extendUserSubscription(userUuid: string, days: number): Pr
     }
 }
   
-export async function createUser(username: string, days: number, telegramId?: number): Promise<void> {
+export async function createUser(username: string, days: number, telegramId?: number, activeInternalSquads?: string[]): Promise<void> {
     try {
         const expireAtDate = new Date();
         if (days === 2099) {
@@ -233,6 +232,9 @@ export async function createUser(username: string, days: number, telegramId?: nu
         }
         const payload: any = { username, expireAt: expireAtDate.toISOString(), status: 'ACTIVE' };
         if (telegramId) payload.telegramId = telegramId;
+        if (activeInternalSquads && activeInternalSquads.length > 0) {
+            payload.activeInternalSquads = activeInternalSquads;
+        }
         await apiClient.post(`/api/users`, payload);
     } catch (error) {
         console.error(`Error creating user ${username}:`, error instanceof AxiosError ? error.message : error);
@@ -308,7 +310,7 @@ export async function getAllNodes(): Promise<NodeItem[]> {
 
 export async function restartAllNodes(): Promise<void> {
     try {
-        await apiClient.post('/api/nodes/actions/restart-all');
+        await apiClient.post('/api/nodes/actions/restart-all', { forceRestart: true });
     } catch (error) {
         console.error(`Error restarting all nodes:`, error instanceof AxiosError ? error.message : error);
         throw error;
@@ -317,10 +319,29 @@ export async function restartAllNodes(): Promise<void> {
 
 export async function restartNode(nodeUuid: string): Promise<void> {
     try {
-        await apiClient.post(`/api/nodes/${nodeUuid}/actions/restart`);
+        await apiClient.post(`/api/nodes/${nodeUuid}/actions/restart`, { forceRestart: true });
     } catch (error) {
         console.error(`Error restarting node ${nodeUuid}:`, error instanceof AxiosError ? error.message : error);
         throw error;
+    }
+}
+
+export interface InternalSquad {
+    uuid: string;
+    name: string;
+    info: {
+        membersCount: number;
+        inboundsCount: number;
+    };
+}
+
+export async function getInternalSquads(): Promise<InternalSquad[]> {
+    try {
+        const response = await apiClient.get('/api/internal-squads');
+        return response.data?.response?.internalSquads || [];
+    } catch (error) {
+        console.error(`Error fetching internal squads:`, error instanceof AxiosError ? error.message : error);
+        return [];
     }
 }
 
@@ -349,6 +370,7 @@ export interface TraffilkNode {
 }
 
 export async function getTraffilkNodes(): Promise<TraffilkNode[]> {
+    if (!traffilkClient) return [];
     try {
         const response = await traffilkClient.get('/api/traffilk/nodes');
         return response.data as TraffilkNode[];

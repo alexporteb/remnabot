@@ -2,26 +2,9 @@ import { Telegraf, Markup } from 'telegraf';
 import dotenv from 'dotenv';
 import { startCronJobs, reloadCronJobs } from './cron';
 import { loadConfig, saveConfig } from './config';
-import { getUserByTelegramId, getSubscriptionInfo, deleteAllHwidDevices, getUserHwidDevices, deleteHwidDevice, getSubscriptionSettings, revokeUserSubscription, getAllUsers, extendUserSubscription, createUser, changeUserStatus, deleteUser, resetUserTraffic, getAllNodes, restartAllNodes, restartNode, getTraffilkNodes } from './api';
+import { getUserByTelegramId, getSubscriptionInfo, deleteAllHwidDevices, getUserHwidDevices, deleteHwidDevice, getSubscriptionSettings, revokeUserSubscription, getAllUsers, extendUserSubscription, createUser, changeUserStatus, deleteUser, resetUserTraffic, getAllNodes, restartAllNodes, restartNode, getTraffilkNodes, getInternalSquads } from './api';
 import { loadActiveUsers, saveActiveUser, isUserActive } from './active_users';
-
-function formatBytes(bytes: number, decimals = 2) {
-    if (!+bytes) return '0 B';
-    const k = 1024;
-    const dm = decimals < 0 ? 0 : decimals;
-    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
-}
-
-function formatUptime(seconds: number) {
-    const d = Math.floor(seconds / (3600*24));
-    const h = Math.floor(seconds % (3600*24) / 3600);
-    const m = Math.floor(seconds % 3600 / 60);
-    if (d > 0) return `${d} дн. ${h} ч.`;
-    if (h > 0) return `${h} ч. ${m} мин.`;
-    return `${m} мин.`;
-}
+import { escapeMarkdown, formatBytes, formatUptime } from './utils';
 
 dotenv.config();
 
@@ -43,11 +26,6 @@ bot.use(async (ctx, next) => {
     return next();
 });
 
-function escapeMarkdown(text: string): string {
-    if (!text) return '';
-    return text.replace(/[_*[\]`\\]/g, '\\$&');
-}
-
 // Generic error for unauthorized users
 const unauthorizedMessage = "Команда не распознана.";
 
@@ -57,9 +35,10 @@ const adminDmState = new Map<number, number>(); // adminTelegramId -> targetTele
 const adminConfigState = new Map<number, 'DAY' | 'TIME' | 'MSG'>(); // Setting states
 
 interface AddUserState {
-    step: 'USERNAME' | 'DURATION' | 'TELEGRAM';
+    step: 'USERNAME' | 'DURATION' | 'SQUAD' | 'TELEGRAM';
     username?: string;
     days?: number;
+    squadUuids?: string[];
 }
 const adminAddUserState = new Map<number, AddUserState>();
 
@@ -825,12 +804,10 @@ async function renderAdminUserDetail(ctx: any, targetUuid: string, page: number)
     buttons.push([Markup.button.callback('🗑 Удалить пользователя', `a_del:${user.uuid}:${page}`)]);
     buttons.push([Markup.button.callback('🔙 Назад к списку', `admin_users_page:${page}`)]);
 
-    console.log(`[DEBUG] Rendering detail for user ${targetUuid}. Buttons count: ${buttons.length}`);
     try {
         await ctx.editMessageText(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
-        console.log(`[DEBUG] editMessageText succeeded`);
     } catch(e) {
-        console.error("[DEBUG] Error editing message text:", e);
+        console.error("Error editing message text:", e);
     }
 }
 
@@ -1168,9 +1145,70 @@ bot.action(/admin_add_user_duration:(\d+)/, async (ctx) => {
     if (!addUserState || addUserState.step !== 'DURATION') return;
 
     addUserState.days = parseInt(ctx.match[1], 10);
+    addUserState.step = 'SQUAD';
+
+    // Fetch squads and show selection
+    try {
+        const squads = await getInternalSquads();
+        if (squads.length === 0) {
+            // No squads configured, skip to telegram step
+            addUserState.step = 'TELEGRAM';
+            const text = `⏳ **Шаг 3 из 3**\nСрок подписки выбран: **${addUserState.days} дней**.\n\nХотите привязать пользователя к Telegram?\nОтправьте его Telegram ID сообщением (или перешлите сообщение от него), либо нажмите кнопку "Пропустить".`;
+            const keyboard = Markup.inlineKeyboard([
+                [Markup.button.callback('⏭ Пропустить привязку', 'admin_add_user_skip_tg')],
+                [Markup.button.callback('🔙 Назад в админ-меню', 'action_admin_main')]
+            ]);
+            await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+            await ctx.answerCbQuery();
+            return;
+        }
+
+        const text = `🏷 **Шаг 3 из 4**\nВыберите сквад для пользователя **${escapeMarkdown(addUserState.username!)}**:`;
+        const buttons: any[][] = [];
+        for (const squad of squads) {
+            buttons.push([Markup.button.callback(`${squad.name} (${squad.info.membersCount} чел.)`, `admin_add_user_squad:${squad.uuid}`)]);
+        }
+        buttons.push([Markup.button.callback('⏭ Пропустить (без сквада)', 'admin_add_user_skip_squad')]);
+        buttons.push([Markup.button.callback('🔙 Назад в админ-меню', 'action_admin_main')]);
+
+        await ctx.editMessageText(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+        await ctx.answerCbQuery();
+    } catch (e) {
+        console.error(e);
+        await ctx.answerCbQuery('Ошибка при загрузке сквадов.', { show_alert: true });
+    }
+});
+
+bot.action(/admin_add_user_squad:(.+)/, async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId || !isAdmin(telegramId)) return;
+
+    const addUserState = adminAddUserState.get(telegramId);
+    if (!addUserState || addUserState.step !== 'SQUAD') return;
+
+    addUserState.squadUuids = [ctx.match[1]];
     addUserState.step = 'TELEGRAM';
 
-    const text = `⏳ **Шаг 3 из 3**\nСрок подписки выбран: **${addUserState.days} дней**.\n\nХотите привязать пользователя к Telegram?\nОтправьте его Telegram ID сообщением (или перешлите сообщение от него), либо нажмите кнопку "Пропустить".`;
+    const text = `⏳ **Шаг 4 из 4**\n\nХотите привязать пользователя к Telegram?\nОтправьте его Telegram ID сообщением (или перешлите сообщение от него), либо нажмите кнопку "Пропустить".`;
+    const keyboard = Markup.inlineKeyboard([
+        [Markup.button.callback('⏭ Пропустить привязку', 'admin_add_user_skip_tg')],
+        [Markup.button.callback('🔙 Назад в админ-меню', 'action_admin_main')]
+    ]);
+
+    await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+    await ctx.answerCbQuery();
+});
+
+bot.action('admin_add_user_skip_squad', async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId || !isAdmin(telegramId)) return;
+
+    const addUserState = adminAddUserState.get(telegramId);
+    if (!addUserState || addUserState.step !== 'SQUAD') return;
+
+    addUserState.step = 'TELEGRAM';
+
+    const text = `⏳ **Шаг 4 из 4**\n\nХотите привязать пользователя к Telegram?\nОтправьте его Telegram ID сообщением (или перешлите сообщение от него), либо нажмите кнопку "Пропустить".`;
     const keyboard = Markup.inlineKeyboard([
         [Markup.button.callback('⏭ Пропустить привязку', 'admin_add_user_skip_tg')],
         [Markup.button.callback('🔙 Назад в админ-меню', 'action_admin_main')]
@@ -1183,7 +1221,7 @@ bot.action(/admin_add_user_duration:(\d+)/, async (ctx) => {
 async function finalizeCreateUser(ctx: any, adminTelegramId: number, state: AddUserState, targetTelegramId?: number) {
     try {
         let msg = await ctx.reply(`⏳ Создаю пользователя ${escapeMarkdown(state.username!)}...`);
-        await createUser(state.username!, state.days!, targetTelegramId);
+        await createUser(state.username!, state.days!, targetTelegramId, state.squadUuids);
         console.log(`[ADMIN_CREATE_USER] Telegram ID ${adminTelegramId} successfully created user ${state.username} for ${state.days} days.`);
         adminAddUserState.delete(adminTelegramId);
 
