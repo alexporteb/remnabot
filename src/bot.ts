@@ -26,6 +26,26 @@ bot.use(async (ctx, next) => {
     return next();
 });
 
+// Rate limiting middleware to prevent API abuse
+const rateLimitMap = new Map<number, number>();
+const RATE_LIMIT_MS = 1500;
+
+bot.use(async (ctx, next) => {
+    const userId = ctx.from?.id;
+    if (!userId) return next();
+
+    const now = Date.now();
+    const lastAction = rateLimitMap.get(userId) || 0;
+    if (now - lastAction < RATE_LIMIT_MS) {
+        if (ctx.callbackQuery) {
+            await ctx.answerCbQuery('⏳ Подождите немного...', { show_alert: false });
+        }
+        return;
+    }
+    rateLimitMap.set(userId, now);
+    return next();
+});
+
 // Generic error for unauthorized users
 const unauthorizedMessage = "Команда не распознана.";
 
@@ -498,7 +518,7 @@ bot.action('admin_nodes_menu', async (ctx) => {
     }
 });
 
-bot.action(/^a_n_r:(.+)$/, async (ctx) => {
+bot.action(/^a_n_r:([0-9a-f-]{36})$/, async (ctx) => {
     const telegramId = ctx.from?.id;
     if (!telegramId || !isAdmin(telegramId)) return;
 
@@ -604,7 +624,7 @@ bot.action('a_node_rst_all', async (ctx) => {
     }
 });
 
-bot.action(/a_node_rst:(.+)/, async (ctx) => {
+bot.action(/a_node_rst:([0-9a-f-]{36})/, async (ctx) => {
     const telegramId = ctx.from?.id;
     if (!telegramId || !isAdmin(telegramId)) return;
 
@@ -716,7 +736,7 @@ bot.action(/admin_users_page:(\d+)/, async (ctx) => {
     }
 });
 
-bot.action(/admin_user_detail:(.+):(\d+)/, async (ctx) => {
+bot.action(/admin_user_detail:([0-9a-f-]{36}):(\d+)/, async (ctx) => {
     const telegramId = ctx.from?.id;
     if (!telegramId || !isAdmin(telegramId)) return;
 
@@ -811,7 +831,7 @@ async function renderAdminUserDetail(ctx: any, targetUuid: string, page: number)
     }
 }
 
-bot.action(/a_st:(.+):([AD]):(\d+)/, async (ctx) => {
+bot.action(/a_st:([0-9a-f-]{36}):([AD]):(\d+)/, async (ctx) => {
     const telegramId = ctx.from?.id;
     if (!telegramId || !isAdmin(telegramId)) return;
 
@@ -830,7 +850,7 @@ bot.action(/a_st:(.+):([AD]):(\d+)/, async (ctx) => {
     }
 });
 
-bot.action(/a_del:(.+):(\d+)/, async (ctx) => {
+bot.action(/a_del:([0-9a-f-]{36}):(\d+)/, async (ctx) => {
     const telegramId = ctx.from?.id;
     if (!telegramId || !isAdmin(telegramId)) return;
 
@@ -846,7 +866,7 @@ bot.action(/a_del:(.+):(\d+)/, async (ctx) => {
     await ctx.editMessageText(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
 });
 
-bot.action(/a_del_ok:(.+):(\d+)/, async (ctx) => {
+bot.action(/a_del_ok:([0-9a-f-]{36}):(\d+)/, async (ctx) => {
     const telegramId = ctx.from?.id;
     if (!telegramId || !isAdmin(telegramId)) return;
 
@@ -890,7 +910,7 @@ bot.action(/a_del_ok:(.+):(\d+)/, async (ctx) => {
     }
 });
 
-bot.action(/a_rst_traf:(.+):(\d+)/, async (ctx) => {
+bot.action(/a_rst_traf:([0-9a-f-]{36}):(\d+)/, async (ctx) => {
     const telegramId = ctx.from?.id;
     if (!telegramId || !isAdmin(telegramId)) return;
 
@@ -907,7 +927,7 @@ bot.action(/a_rst_traf:(.+):(\d+)/, async (ctx) => {
     }
 });
 
-bot.action(/admin_extend_init:(.+):(\d+)/, async (ctx) => {
+bot.action(/admin_extend_init:([0-9a-f-]{36}):(\d+)/, async (ctx) => {
     const telegramId = ctx.from?.id;
     if (!telegramId || !isAdmin(telegramId)) return;
 
@@ -925,7 +945,7 @@ bot.action(/admin_extend_init:(.+):(\d+)/, async (ctx) => {
     await ctx.answerCbQuery();
 });
 
-bot.action(/admin_extend:(.+):(\d+):(\d+)/, async (ctx) => {
+bot.action(/admin_extend:([0-9a-f-]{36}):(\d+):(\d+)/, async (ctx) => {
     const telegramId = ctx.from?.id;
     if (!telegramId || !isAdmin(telegramId)) return;
 
@@ -967,7 +987,7 @@ async function renderAdminSubMenu(ctx: any, userUuid: string, page: number) {
     await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
 }
 
-bot.action(/a_sub_menu:(.+):(\d+)/, async (ctx) => {
+bot.action(/a_sub_menu:([0-9a-f-]{36}):(\d+)/, async (ctx) => {
     const telegramId = ctx.from?.id;
     if (!telegramId || !isAdmin(telegramId)) return;
     try {
@@ -979,7 +999,7 @@ bot.action(/a_sub_menu:(.+):(\d+)/, async (ctx) => {
     }
 });
 
-bot.action(/a_revoke_sub:(.+):(\d+)/, async (ctx) => {
+bot.action(/a_revoke_sub:([0-9a-f-]{36}):(\d+)/, async (ctx) => {
     const telegramId = ctx.from?.id;
     if (!telegramId || !isAdmin(telegramId)) return;
     const targetUuid = ctx.match[1];
@@ -995,7 +1015,7 @@ bot.action(/a_revoke_sub:(.+):(\d+)/, async (ctx) => {
     await ctx.answerCbQuery();
 });
 
-bot.action(/a_revoke_exec:(.+):(\d+)/, async (ctx) => {
+bot.action(/a_revoke_exec:([0-9a-f-]{36}):(\d+)/, async (ctx) => {
     const telegramId = ctx.from?.id;
     if (!telegramId || !isAdmin(telegramId)) return;
     const targetUuid = ctx.match[1];
@@ -1040,7 +1060,7 @@ async function renderAdminHwidMenu(ctx: any, userUuid: string, page: number) {
     await ctx.editMessageText(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
 }
 
-bot.action(/a_hwid_menu:(.+):(\d+)/, async (ctx) => {
+bot.action(/a_hwid_menu:([0-9a-f-]{36}):(\d+)/, async (ctx) => {
     const telegramId = ctx.from?.id;
     if (!telegramId || !isAdmin(telegramId)) return;
     try {
@@ -1052,7 +1072,7 @@ bot.action(/a_hwid_menu:(.+):(\d+)/, async (ctx) => {
     }
 });
 
-bot.action(/a_del_h:(.+):(.+):(\d+)/, async (ctx) => {
+bot.action(/a_del_h:([0-9a-zA-Z-]+):([0-9a-zA-Z_-]+):(\d+)/, async (ctx) => {
     const telegramId = ctx.from?.id;
     if (!telegramId || !isAdmin(telegramId)) return;
     const shortUuid = ctx.match[1];
@@ -1074,7 +1094,7 @@ bot.action(/a_del_h:(.+):(.+):(\d+)/, async (ctx) => {
     }
 });
 
-bot.action(/a_res_h:(.+):(\d+)/, async (ctx) => {
+bot.action(/a_res_h:([0-9a-f-]{36}):(\d+)/, async (ctx) => {
     const telegramId = ctx.from?.id;
     if (!telegramId || !isAdmin(telegramId)) return;
     const targetUuid = ctx.match[1];
@@ -1091,7 +1111,7 @@ bot.action(/a_res_h:(.+):(\d+)/, async (ctx) => {
     }
 });
 
-bot.action(/admin_dm_init:(.+)/, async (ctx) => {
+bot.action(/admin_dm_init:(\d+)/, async (ctx) => {
     const telegramId = ctx.from?.id;
     if (!telegramId || !isAdmin(telegramId)) return;
 
@@ -1179,7 +1199,7 @@ bot.action(/admin_add_user_duration:(\d+)/, async (ctx) => {
     }
 });
 
-bot.action(/admin_add_user_squad:(.+)/, async (ctx) => {
+bot.action(/admin_add_user_squad:([0-9a-f-]{36})/, async (ctx) => {
     const telegramId = ctx.from?.id;
     if (!telegramId || !isAdmin(telegramId)) return;
 
@@ -1360,8 +1380,10 @@ bot.on('message', async (ctx) => {
             config.paymentNotificationDay = day;
         } else if (configState === 'TIME') {
             const parts = text.split(':');
-            if (parts.length !== 2 || isNaN(parseInt(parts[0], 10)) || isNaN(parseInt(parts[1], 10))) {
-                await ctx.reply("❌ Неверный формат. Введите время в формате ЧЧ:ММ (например, 10:00).");
+            const h = parseInt(parts[0], 10);
+            const m = parseInt(parts[1], 10);
+            if (parts.length !== 2 || isNaN(h) || isNaN(m) || h < 0 || h > 23 || m < 0 || m > 59) {
+                await ctx.reply("❌ Неверный формат. Введите время от 00:00 до 23:59 в формате ЧЧ:ММ.");
                 return;
             }
             config.paymentNotificationTime = text;
@@ -1424,8 +1446,8 @@ bot.on('message', async (ctx) => {
         }
     }
 
-    const text = 'text' in ctx.message ? ctx.message.text : 'non-text message';
-    console.log(`[MESSAGE] Unhandled message from ID ${telegramId}: ${text}`);
+    const textLength = 'text' in ctx.message ? ctx.message.text?.length ?? 0 : 0;
+    console.log(`[MESSAGE] Unhandled message from ID ${telegramId} (${textLength} chars)`);
     ctx.reply(unauthorizedMessage);
 });
 

@@ -44,34 +44,39 @@ export function reloadCronJobs(bot: Telegraf) {
     const cronExpression = `${minute} ${hour} ${day} * *`;
     console.log(`[CRON] Scheduled payment notifications for day ${day} at ${timeStr} MSK.`);
 
-    currentTask = cron.schedule(cronExpression, async () => {
-        console.log("[CRON] Executing payment notifications...");
-        try {
-            const users = await getAllUsers();
-            let successCount = 0;
-            let failCount = 0;
-            
-            for (const user of users) {
-                if (user.telegramId) {
-                    try {
-                        const message = msg
-                            .replace('{username}', escapeMarkdown(user.username))
-                            .replace('{expireDate}', escapeMarkdown(new Date(user.expireAt).toLocaleDateString('ru-RU')));
-                        
-                        await bot.telegram.sendMessage(user.telegramId, message, { parse_mode: 'Markdown' });
-                        successCount++;
-                    } catch (e) {
-                        console.error(`[CRON] Failed to send to ${user.telegramId}:`, e);
-                        failCount++;
+    try {
+        currentTask = cron.schedule(cronExpression, async () => {
+            console.log("[CRON] Executing payment notifications...");
+            try {
+                const users = await getAllUsers();
+                let successCount = 0;
+                let failCount = 0;
+                
+                for (const user of users) {
+                    if (user.telegramId) {
+                        try {
+                            const message = msg
+                                .replace('{username}', escapeMarkdown(user.username))
+                                .replace('{expireDate}', escapeMarkdown(new Date(user.expireAt).toLocaleDateString('ru-RU')));
+                            
+                            await bot.telegram.sendMessage(user.telegramId, message, { parse_mode: 'Markdown' });
+                            successCount++;
+                        } catch (e) {
+                            console.error(`[CRON] Failed to send to ${user.telegramId}:`, e);
+                            failCount++;
+                        }
+                        await new Promise(r => setTimeout(r, 1000));
                     }
-                    await new Promise(r => setTimeout(r, 1000));
                 }
+                console.log(`[CRON] Payment notification job finished. Success: ${successCount}, Failed: ${failCount}.`);
+            } catch (error: any) {
+                console.error('[CRON] Critical error during payment notification job:', error.message);
             }
-            console.log(`[CRON] Payment notification job finished. Success: ${successCount}, Failed: ${failCount}.`);
-        } catch (error: any) {
-            console.error('[CRON] Critical error during payment notification job:', error.message);
-        }
-    }, {
-        timezone: 'Europe/Moscow'
-    });
+        }, {
+            timezone: 'Europe/Moscow'
+        });
+    } catch (e) {
+        console.error(`[CRON] Failed to schedule cron expression "${cronExpression}":`, e);
+    }
 }
+
