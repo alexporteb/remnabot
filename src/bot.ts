@@ -26,9 +26,9 @@ bot.use(async (ctx, next) => {
     return next();
 });
 
-// Rate limiting middleware to prevent API abuse
+// Rate limiting middleware — catches only automated spam, not normal usage
 const rateLimitMap = new Map<number, number>();
-const RATE_LIMIT_MS = 1500;
+const RATE_LIMIT_MS = 300;
 
 bot.use(async (ctx, next) => {
     const userId = ctx.from?.id;
@@ -38,7 +38,7 @@ bot.use(async (ctx, next) => {
     const lastAction = rateLimitMap.get(userId) || 0;
     if (now - lastAction < RATE_LIMIT_MS) {
         if (ctx.callbackQuery) {
-            await ctx.answerCbQuery('⏳ Подождите немного...', { show_alert: false });
+            await ctx.answerCbQuery();
         }
         return;
     }
