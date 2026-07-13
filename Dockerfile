@@ -25,9 +25,6 @@ RUN npm ci --omit=dev
 # Copy built code
 COPY --from=builder /app/dist ./dist
 
-# Run as non-root user
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
-USER appuser
-
 # Run bot
 CMD ["node", "dist/bot.js"]
+
